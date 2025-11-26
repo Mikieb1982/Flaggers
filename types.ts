@@ -2,12 +2,15 @@ export enum EntityType {
   HERO = 'HERO',
   ENEMY_FLAGGER = 'ENEMY_FLAGGER',
   ENEMY_PAINTER = 'ENEMY_PAINTER',
+  ENEMY_HOOLIGAN = 'ENEMY_HOOLIGAN',
+  ENEMY_TANK = 'ENEMY_TANK',
 }
 
 export enum EntityState {
   IDLE = 'IDLE',
   WALK = 'WALK',
   ATTACK = 'ATTACK',
+  PRE_ATTACK = 'PRE_ATTACK',
   HURT = 'HURT',
   DYING = 'DYING',
   DEAD = 'DEAD',
@@ -49,6 +52,12 @@ export interface Entity {
   scoreValue: number;
   shoutText?: string;
   shoutTimer?: number;
+  comboStage?: number; // 0, 1, 2
+  lastAttackTime?: number;
+  
+  // Power-up timers
+  speedBoostTimer?: number;
+  invincibilityTimer?: number;
 }
 
 export interface Particle {
@@ -64,14 +73,25 @@ export interface Particle {
   text?: string;
 }
 
+export interface Pickup {
+    id: string;
+    type: 'TEA' | 'CRUMPET' | 'SPEED' | 'INVINCIBILITY';
+    x: number;
+    y: number;
+    z: number;
+    life: number;
+}
+
 export interface GameState {
   hero: Entity;
   enemies: Entity[];
   particles: Particle[];
+  pickups: Pickup[];
   score: number;
   suburbanIntegrity: number; // 0-100, if 0 lose
   gameOver: boolean;
   gameWon: boolean;
   wave: number;
   cameraShake: number;
+  cameraX: number;
 }

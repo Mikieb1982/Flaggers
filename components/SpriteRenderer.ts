@@ -1,6 +1,5 @@
-
-import { Entity, EntityState, EntityType, Direction, Particle } from '../types';
-import { ATTACK_DURATION } from '../constants';
+import { Entity, EntityState, EntityType, Direction, Particle, Pickup } from '../types';
+import { ATTACK_DURATION, GROUND_Y_HORIZON, WORLD_WIDTH } from '../constants';
 
 // --- 16-BIT PALETTE ---
 const COLORS = {
@@ -30,6 +29,10 @@ const COLORS = {
   shirtBlue: '#0d47a1',
   shirtRed: '#b71c1c',
   shirtWhite: '#eceff1',
+
+  // Hooligan
+  tracksuitGrey: '#9e9e9e',
+  tracksuitDark: '#616161',
   
   // Environment
   road: '#37474f', 
@@ -112,8 +115,37 @@ const drawUnionJackShirt = (ctx: CanvasRenderingContext2D, x: number, y: number,
 };
 
 export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame: number) => {
-  const { x, y, z, width, height, direction, state, type, isHit, shoutText, stateTimer } = entity;
+  const { x, y, z, width, height, direction, state, type, isHit, shoutText, stateTimer, comboStage, speedBoostTimer, invincibilityTimer } = entity;
   
+  // Power-up Visuals: Speed Boost Trail
+  if (speedBoostTimer && speedBoostTimer > 0 && frame % 4 === 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = 'rgba(0, 191, 255, 0.5)';
+      const trailX = x - (direction * 15);
+      const trailY = y - z;
+      ctx.fillRect(trailX - width/2, trailY - height, width, height);
+      ctx.restore();
+  }
+
+  // Invincibility Aura
+  if (invincibilityTimer && invincibilityTimer > 0) {
+      ctx.save();
+      const auraScale = 1 + Math.sin(frame * 0.3) * 0.1;
+      ctx.globalAlpha = 0.5;
+      
+      const grad = ctx.createRadialGradient(x, y - z - height/2, height/3, x, y - z - height/2, height);
+      grad.addColorStop(0, 'rgba(255, 215, 0, 0)');
+      grad.addColorStop(0.8, 'rgba(255, 215, 0, 0.4)');
+      grad.addColorStop(1, 'rgba(255, 255, 224, 0)');
+      
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(x, y - z - height/2, (width * 1.2) * auraScale, (height * 0.8) * auraScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+  }
+
   // Hit flash effect
   if (isHit && Math.floor(Date.now() / 50) % 2 === 0) {
       ctx.globalCompositeOperation = 'source-atop';
@@ -121,7 +153,26 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
       ctx.globalAlpha = 0.7;
   }
 
-  const shakeX = isHit ? (Math.random() * 6 - 3) : 0;
+  // PRE_ATTACK Telegraph Visuals
+  if (state === EntityState.PRE_ATTACK) {
+      // Red Outline/Glow
+      if (Math.floor(Date.now() / 50) % 2 === 0) {
+          ctx.shadowColor = '#d50000';
+          ctx.shadowBlur = 10;
+      }
+      
+      // Draw Alert Indicator
+      ctx.save();
+      ctx.font = 'bold 24px "Press Start 2P"';
+      ctx.fillStyle = '#ff0000';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.strokeText('!', x - 5, y - height - z - 20);
+      ctx.fillText('!', x - 5, y - height - z - 20);
+      ctx.restore();
+  }
+
+  const shakeX = (isHit || state === EntityState.PRE_ATTACK) ? (Math.random() * 4 - 2) : 0;
   const shakeY = isHit ? (Math.random() * 6 - 3) : 0;
   
   const drawX = Math.floor(x + shakeX);
@@ -129,7 +180,6 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
 
   const isMoving = state === EntityState.WALK;
   // Use actual velocity magnitude to scale animation speed
-  // Max speed is approx 5.5 (WALK_SPEED)
   const speed = Math.sqrt(entity.vx * entity.vx + entity.vy * entity.vy);
   // Default cycle speed if just 'isMoving' but velocity is 0 (shouldn't happen often) or physics disabled
   const animSpeed = Math.max(0.1, speed * 0.08); 
@@ -154,14 +204,14 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
   const sY = drawY - height;
 
   if (type === EntityType.HERO) {
-    // --- HERO (16-BIT STYLE) ---
+    // ... HERO RENDERING ...
     
     let bodyLean = 0;
     if (state === EntityState.ATTACK) {
         const progress = 1 - (stateTimer / ATTACK_DURATION);
         if (progress > 0.1 && progress < 0.6) bodyLean = 15;
     } else if (isMoving) {
-        bodyLean = speed * 1.5; // Lean into the run
+        bodyLean = speed * 1.5; 
     }
 
     // --- LEGS ---
@@ -169,98 +219,75 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
     const lStride = isMoving ? lFactor * strideLen : 0;
     const rStride = isMoving ? rFactor * strideLen : 0;
 
-    // Lift foot when moving forward (factor > 0)
-    // We max(0, factor) to only lift during the forward swing
     const liftH = 10;
     const lLift = isMoving && lFactor > 0 ? Math.sin(walkCycle) * liftH : 0;
     const rLift = isMoving && rFactor > 0 ? Math.sin(walkCycle + Math.PI) * liftH : 0;
 
-    // Left Leg
     const lLegX = sX + 16 + lStride + (bodyLean * 0.5);
-    const lLegY = sY + 55 - lLift; // Apply lift to Y
+    const lLegY = sY + 55 - lLift; 
     drawRect(ctx, lLegX, lLegY, 14, 32, COLORS.jeansShadow); 
     drawRect(ctx, lLegX + 2, lLegY, 10, 32, COLORS.jeans); 
     drawRect(ctx, lLegX + 4, lLegY, 4, 32, COLORS.jeansHighlight); 
-    drawRect(ctx, lLegX - 2, lLegY + 29, 18, 9, '#eeeeee'); // Shoe
-    drawRect(ctx, lLegX - 2, lLegY + 35, 18, 3, '#bdbdbd'); // Sole
+    drawRect(ctx, lLegX - 2, lLegY + 29, 18, 9, '#eeeeee'); 
+    drawRect(ctx, lLegX - 2, lLegY + 35, 18, 3, '#bdbdbd'); 
 
-    // Right Leg
     const rLegX = sX + 30 + rStride + bodyLean;
-    const rLegY = sY + 55 - bounce - rLift; // Right leg also affected by bounce
+    const rLegY = sY + 55 - bounce - rLift; 
     drawRect(ctx, rLegX, rLegY, 14, 32, COLORS.jeans);
     drawRect(ctx, rLegX + 4, rLegY, 4, 32, COLORS.jeansHighlight); 
     drawRect(ctx, rLegX - 2, rLegY + 29, 18, 9, '#eeeeee');
     drawRect(ctx, rLegX - 2, rLegY + 35, 18, 3, '#bdbdbd');
 
-    // --- TORSO ---
     const torsoY = sY + 20 + bounce;
     const torsoX = sX + bodyLean;
 
-    // Belt
     drawRect(ctx, torsoX + 16, torsoY + 30, 26, 6, '#212121');
     drawRect(ctx, torsoX + 26, torsoY + 30, 6, 6, '#ffd700'); 
     
-    // Skin (Muscles)
     drawRect(ctx, torsoX + 16, torsoY, 26, 30, COLORS.skin);
-    // Abs shading
     drawRect(ctx, torsoX + 28, torsoY + 14, 2, 16, COLORS.skinShadow);
     drawRect(ctx, torsoX + 22, torsoY + 20, 14, 2, COLORS.skinShadow);
     drawRect(ctx, torsoX + 22, torsoY + 24, 14, 2, COLORS.skinShadow);
-    // Pecs
     drawRect(ctx, torsoX + 16, torsoY + 12, 26, 2, COLORS.skinShadow);
-    // Muscle Shine
     drawRect(ctx, torsoX + 18, torsoY + 4, 6, 4, COLORS.skinHighlight);
     drawRect(ctx, torsoX + 34, torsoY + 4, 6, 4, COLORS.skinHighlight);
 
-    // Denim Vest
-    drawRect(ctx, torsoX + 8, torsoY - 2, 12, 30, COLORS.vest); // Left
-    drawRect(ctx, torsoX + 10, torsoY + 8, 4, 20, COLORS.vestShadow); // Shading
+    drawRect(ctx, torsoX + 8, torsoY - 2, 12, 30, COLORS.vest); 
+    drawRect(ctx, torsoX + 10, torsoY + 8, 4, 20, COLORS.vestShadow); 
     
-    drawRect(ctx, torsoX + 38, torsoY - 2, 12, 30, COLORS.vest); // Right
-    drawRect(ctx, torsoX + 44, torsoY + 8, 4, 20, COLORS.vestShadow); // Shading
+    drawRect(ctx, torsoX + 38, torsoY - 2, 12, 30, COLORS.vest); 
+    drawRect(ctx, torsoX + 44, torsoY + 8, 4, 20, COLORS.vestShadow); 
 
-    drawRect(ctx, torsoX + 8, torsoY - 2, 42, 8, COLORS.vest); // Shoulders
-    // Vest collar/studs
+    drawRect(ctx, torsoX + 8, torsoY - 2, 42, 8, COLORS.vest); 
     drawRect(ctx, torsoX + 12, torsoY + 2, 2, 2, '#fff');
     drawRect(ctx, torsoX + 44, torsoY + 2, 2, 2, '#fff');
 
-    // --- HEAD ---
     const headY = sY + bounce + (bodyLean * 0.2) - 4;
     const headX = sX + (bodyLean * 1.2) + 12;
     
-    // Neck
     drawRect(ctx, headX + 6, headY + 20, 14, 6, COLORS.skinShadow);
 
-    // Face
     drawRect(ctx, headX, headY, 26, 26, COLORS.skin);
-    drawRect(ctx, headX + 2, headY + 4, 4, 10, COLORS.skinHighlight); // Forehead shine
+    drawRect(ctx, headX + 2, headY + 4, 4, 10, COLORS.skinHighlight); 
     
-    // Mullet Physics
     const hairFlow = Math.sin(frame * 0.4) * (isMoving ? 6 : 2);
-    // Back hair
     drawRect(ctx, headX - 6 + hairFlow, headY + 2, 10, 32, COLORS.hair);
-    drawRect(ctx, headX - 4 + hairFlow, headY + 4, 6, 28, COLORS.hairMid); // Texture
+    drawRect(ctx, headX - 4 + hairFlow, headY + 4, 6, 28, COLORS.hairMid); 
     
-    // Top Hair
     drawRect(ctx, headX - 2, headY - 8, 30, 10, COLORS.hair);
-    drawRect(ctx, headX + 4, headY - 6, 20, 4, COLORS.hairHighlight); // Shine
+    drawRect(ctx, headX + 4, headY - 6, 20, 4, COLORS.hairHighlight); 
 
-    // Red Headband
     drawRect(ctx, headX - 2, headY + 2, 30, 6, COLORS.headband);
     drawRect(ctx, headX + 2, headY + 3, 22, 2, COLORS.headbandLight);
-    // Tails
     drawRect(ctx, headX - 8, headY + 6 + hairFlow, 12, 4, COLORS.headband);
 
-    // Face features
-    drawRect(ctx, headX + 18, headY + 12, 4, 3, '#1a237e'); // Eye (Blue eyes!)
-    drawRect(ctx, headX + 16, headY + 9, 10, 2, '#3e2723'); // Eyebrow
-    drawRect(ctx, headX + 16, headY + 21, 8, 2, COLORS.skinShadow); // Mouth
+    drawRect(ctx, headX + 18, headY + 12, 4, 3, '#1a237e'); 
+    drawRect(ctx, headX + 16, headY + 9, 10, 2, '#3e2723'); 
+    drawRect(ctx, headX + 16, headY + 21, 8, 2, COLORS.skinShadow); 
     
-    // --- ARMS ---
     if (state === EntityState.ATTACK) {
         const progress = 1 - (stateTimer / ATTACK_DURATION);
         
-        // Pivot Point (Shoulder)
         const pivX = torsoX + 32;
         const pivY = torsoY + 6;
 
@@ -268,108 +295,96 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
         ctx.translate(pivX, pivY);
 
         let rotation = 0;
-        // Book Swing Mechanics
-        if (progress < 0.2) {
-            // Windup: Hand goes up and back
-            rotation = -2.0; 
-        } else if (progress < 0.4) {
-            // SMASH: Rapid rotation forward
-            rotation = 1.8; 
-        } else {
-            // Recovery: Slowly return
-            rotation = 1.8 - ((progress - 0.4) * 2);
+        
+        if (comboStage === 1) { 
+             if (progress < 0.3) rotation = -1.5;
+             else if (progress < 0.6) rotation = 1.0;
+             else rotation = 1.0 - ((progress - 0.6) * 2.5);
+        } 
+        else if (comboStage === 2) { 
+             if (progress < 0.3) rotation = -2.5; 
+             else if (progress < 0.6) rotation = 1.8; 
+             else rotation = 1.8 - ((progress - 0.6) * 3);
+        }
+        else { 
+             if (progress < 0.2) rotation = -1.0; 
+             else if (progress < 0.4) rotation = 1.0; 
+             else rotation = 1.0 - ((progress - 0.4) * 2);
         }
         
         ctx.rotate(rotation);
 
-        // Arm
-        drawRect(ctx, 0, -4, 18, 12, COLORS.skin); // Upper Arm
-        drawRect(ctx, 16, -2, 16, 10, COLORS.skin); // Forearm
+        drawRect(ctx, 0, -4, 18, 12, COLORS.skin); 
+        drawRect(ctx, 16, -2, 16, 10, COLORS.skin); 
         
-        // Hand
         drawRect(ctx, 30, -4, 10, 14, COLORS.skinShadow);
 
-        // --- THE BOOK ---
         ctx.translate(34, 4); 
-        ctx.rotate(-0.3); // Slight tilt in hand
+        ctx.rotate(-0.3); 
 
         const bookW = 28;
         const bookH = 36;
-        const bookColor = '#283593'; // Indigo cover
+        const bookColor = '#283593'; 
         
-        // Back Cover
         drawRect(ctx, -6, -bookH/2, bookW, bookH, bookColor);
-        
-        // Pages (White thickness)
-        drawRect(ctx, -6 + bookW, -bookH/2 + 2, 6, bookH - 4, '#fff'); // Side pages
-        drawRect(ctx, -6 + 2, -bookH/2 + bookH, bookW - 4, 6, '#fff'); // Bottom pages
-        
-        // Front Cover
-        drawRect(ctx, -4, -bookH/2 - 2, bookW, bookH, '#3949ab'); // Lighter blue front
-        
-        // Spine highlights
+        drawRect(ctx, -6 + bookW, -bookH/2 + 2, 6, bookH - 4, '#fff'); 
+        drawRect(ctx, -6 + 2, -bookH/2 + bookH, bookW - 4, 6, '#fff'); 
+        drawRect(ctx, -4, -bookH/2 - 2, bookW, bookH, '#3949ab'); 
         drawRect(ctx, -6, -bookH/2, 6, bookH, '#1a237e');
         
-        // Text/Symbol on cover (Gold)
         ctx.fillStyle = '#ffd700';
         ctx.fillRect(4, -10, 14, 3);
         ctx.fillRect(4, -4, 10, 2);
         
         ctx.restore();
 
-        // Swoosh Effect (Visual only)
-        if (progress >= 0.2 && progress <= 0.4) {
+        if (progress >= 0.2 && progress <= 0.5) {
              ctx.save();
              ctx.translate(pivX, pivY);
              ctx.beginPath();
-             ctx.arc(0, 0, 55, -1.0, 1.8, false);
-             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-             ctx.lineWidth = 5;
+             const radius = comboStage === 1 ? 65 : 55;
+             const startAng = comboStage === 2 ? -2.0 : -1.0;
+             const endAng = comboStage === 2 ? 1.0 : 1.8;
+             
+             ctx.arc(0, 0, radius, startAng, endAng, false);
+             ctx.strokeStyle = comboStage === 2 ? '#ffea00' : 'rgba(255, 255, 255, 0.8)';
+             ctx.lineWidth = comboStage === 2 ? 8 : 5;
              ctx.stroke();
              ctx.restore();
         }
 
-        // Guard Arm (Left) - Defensive pose
         drawRect(ctx, torsoX + 18, torsoY + 4, 16, 16, COLORS.skinShadow); 
 
     } else {
-        // Idle/Walk Arms (Muscular)
-        // Counter-swing: Right arm matches Left Leg factor, Left arm matches Right Leg factor
         const armSwingMax = 12;
-        const lArmSwing = isMoving ? rFactor * armSwingMax : 0; // Left arm follows right leg
-        const rArmSwing = isMoving ? lFactor * armSwingMax : 0; // Right arm follows left leg
+        const lArmSwing = isMoving ? rFactor * armSwingMax : 0; 
+        const rArmSwing = isMoving ? lFactor * armSwingMax : 0; 
 
         const drawArm = (ax: number, ay: number, swing: number, isRight: boolean) => {
-             drawRect(ctx, ax + swing, ay, 14, 18, COLORS.skin); // Shoulder
-             drawRect(ctx, ax + swing + 4, ay + 2, 4, 6, COLORS.skinHighlight); // Shine
-             drawRect(ctx, ax + (swing * 1.5), ay + 18, 12, 16, COLORS.skin); // Forearm
-             drawRect(ctx, ax + (swing * 1.8) - 1, ay + 34, 14, 6, '#212121'); // Wristband
-             drawRect(ctx, ax + (swing * 1.8) - 1, ay + 40, 14, 10, COLORS.skinShadow); // Hand
+             drawRect(ctx, ax + swing, ay, 14, 18, COLORS.skin); 
+             drawRect(ctx, ax + swing + 4, ay + 2, 4, 6, COLORS.skinHighlight); 
+             drawRect(ctx, ax + (swing * 1.5), ay + 18, 12, 16, COLORS.skin); 
+             drawRect(ctx, ax + (swing * 1.8) - 1, ay + 34, 14, 6, '#212121'); 
+             drawRect(ctx, ax + (swing * 1.8) - 1, ay + 40, 14, 10, COLORS.skinShadow); 
 
              if (isRight) {
-                 // DRAW BOOK IN HAND (Carrying)
                  const hx = ax + (swing * 1.8) + 6;
                  const hy = ay + 45;
                  
                  ctx.save();
                  ctx.translate(hx, hy);
-                 ctx.rotate(0.2 - (swing * 0.02)); // Slight wobble
+                 ctx.rotate(0.2 - (swing * 0.02)); 
 
                  const bookW = 24;
                  const bookH = 32;
                  const bookColor = '#283593';
                  
-                 // Back Cover
                  drawRect(ctx, -4, -2, bookW, bookH, bookColor);
-                 // Pages
                  drawRect(ctx, -4 + bookW, 0, 4, bookH - 2, '#fff');
                  drawRect(ctx, -4 + 2, -2 + bookH, bookW - 2, 4, '#fff');
-                 // Front Cover
                  drawRect(ctx, -2, -4, bookW, bookH, '#3949ab');
-                 // Spine
                  drawRect(ctx, -4, -2, 6, bookH, '#1a237e');
                  
-                 // Gold text detail
                  ctx.fillStyle = '#ffd700';
                  ctx.fillRect(4, 4, 10, 2);
                  ctx.fillRect(4, 10, 8, 2);
@@ -383,120 +398,170 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
     }
 
   } else {
-    // --- GAMMON (16-BIT STYLE) ---
+    // --- GAMMONS (ALL TYPES) ---
     
-    // Waddle Effect: Shift torso X based on step
+    // Waddle Effect
     const waddle = isMoving ? Math.cos(walkCycle) * 3 : 0;
-
-    // --- LEGS ---
     const strideLen = 12;
     const lStride = isMoving ? lFactor * strideLen : 0;
     const rStride = isMoving ? rFactor * strideLen : 0;
 
-    // Lift
     const liftH = 6;
     const lLift = isMoving && lFactor > 0 ? Math.sin(walkCycle) * liftH : 0;
     const rLift = isMoving && rFactor > 0 ? Math.sin(walkCycle + Math.PI) * liftH : 0;
 
-    // Left Leg
-    const lLegX = sX + 8 + lStride;
-    const lLegY = sY + 60 - lLift;
-    drawRect(ctx, lLegX, lLegY, 18, 28, COLORS.pantsShadow);
-    drawRect(ctx, lLegX + 4, lLegY, 10, 28, COLORS.pants);
-    drawRect(ctx, lLegX, lLegY + 28, 20, 5, '#5d4037'); // Brown shoes
+    // Different Pants for different types
+    const pantsColor = type === EntityType.ENEMY_HOOLIGAN ? COLORS.tracksuitGrey : COLORS.pants;
+    const pantsShadow = type === EntityType.ENEMY_HOOLIGAN ? COLORS.tracksuitDark : COLORS.pantsShadow;
 
-    // Right Leg
-    const rLegX = sX + 30 + rStride;
-    const rLegY = sY + 60 - bounce - rLift;
-    drawRect(ctx, rLegX, rLegY, 18, 28, COLORS.pants);
-    drawRect(ctx, rLegX + 4, rLegY, 8, 28, COLORS.pantsShadow);
+    // Legs
+    const lLegX = sX + (type === EntityType.ENEMY_TANK ? 12 : 8) + lStride;
+    const lLegY = sY + (type === EntityType.ENEMY_TANK ? 65 : 60) - lLift;
+    drawRect(ctx, lLegX, lLegY, 18, 28, pantsShadow);
+    drawRect(ctx, lLegX + 4, lLegY, 10, 28, pantsColor);
+    drawRect(ctx, lLegX, lLegY + 28, 20, 5, '#5d4037'); 
+
+    const rLegX = sX + (type === EntityType.ENEMY_TANK ? 45 : 30) + rStride;
+    const rLegY = sY + (type === EntityType.ENEMY_TANK ? 65 : 60) - bounce - rLift;
+    drawRect(ctx, rLegX, rLegY, 18, 28, pantsColor);
+    drawRect(ctx, rLegX + 4, rLegY, 8, 28, pantsShadow);
     drawRect(ctx, rLegX, rLegY + 28, 20, 5, '#5d4037');
 
     // --- TORSO ---
-    // Breathing animation
     const breath = Math.sin(frame * 0.15) * 2;
     const torsoY = sY + 22 + bounce;
+    const bellyX = sX + 6 - (breath/2) + waddle; 
     
-    // Belly Shape
-    const bellyW = 44 + breath;
-    const bellyH = 46;
-    const bellyX = sX + 6 - (breath/2) + waddle; // Apply waddle
-    
-    drawUnionJackShirt(ctx, bellyX, torsoY - 4, bellyW, bellyH, true);
-    
-    // Belly Overhang Shadow
-    drawRect(ctx, bellyX + 4, torsoY + bellyH - 2, bellyW - 8, 4, 'rgba(0,0,0,0.2)');
+    if (type === EntityType.ENEMY_TANK) {
+        // TANK: Big guy, tight white vest
+        const tankW = 70 + breath;
+        const tankH = 55;
+        const tankX = sX + 4 - (breath/2) + waddle;
+        
+        // Dirty White Vest
+        drawRect(ctx, tankX, torsoY - 8, tankW, tankH, '#fff3e0');
+        // Mustard stain
+        drawRect(ctx, tankX + 30, torsoY + 20, 10, 8, '#fbc02d');
+        // Arm holes
+        drawRect(ctx, tankX - 2, torsoY, 8, 20, COLORS.gammonSkin);
+        drawRect(ctx, tankX + tankW - 6, torsoY, 8, 20, COLORS.gammonSkin);
+        
+        // Arms (Huge)
+        const drawTankArm = (ax: number, ay: number, swing: number) => {
+            drawRect(ctx, ax + swing, ay, 20, 36, COLORS.gammonSkin);
+            drawRect(ctx, ax + swing, ay + 10, 20, 4, COLORS.gammonSkinShadow); // Muscle def?
+            drawRect(ctx, ax + swing - 2, ay + 36, 24, 14, COLORS.gammonSkin); // Fist
+        };
+        const armSwing = isMoving ? Math.sin(walkCycle) * 8 : 0;
+        drawTankArm(tankX - 12, torsoY, -armSwing);
+        drawTankArm(tankX + tankW - 8, torsoY, armSwing);
 
-    // Arms (Pink and flabby)
-    const drawFatArm = (ax: number, ay: number, swing: number) => {
-         const sx = ax + swing;
-         drawRect(ctx, sx, ay, 14, 32, COLORS.gammonSkin);
-         drawRect(ctx, sx, ay, 4, 32, COLORS.gammonSkinShadow); // Flab shadow
-         drawRect(ctx, sx + 8, ay + 2, 4, 10, COLORS.gammonSkinHighlight); // Sweat shine
-         
-         // Hands
-         drawRect(ctx, sx - 2, ay + 30, 18, 12, COLORS.gammonSkin);
-    };
+    } else if (type === EntityType.ENEMY_HOOLIGAN) {
+        // HOOLIGAN: Grey Tracksuit Hoodie
+        const hooliW = 38 + breath;
+        const hooliH = 42;
+        
+        drawRect(ctx, bellyX, torsoY - 2, hooliW, hooliH, COLORS.tracksuitGrey);
+        drawRect(ctx, bellyX + 10, torsoY + 10, hooliW - 20, 20, '#bdbdbd'); // Pocket
+        // Zip
+        drawRect(ctx, bellyX + (hooliW/2) - 1, torsoY - 2, 2, 20, '#eeeeee');
 
-    if (state === EntityState.ACTION) {
-        // Raising flag or painting
-        drawRect(ctx, sX + 40 + waddle, torsoY + 10, 26, 14, COLORS.gammonSkin);
-        drawRect(ctx, sX + 66 + waddle, torsoY + 8, 10, 16, COLORS.gammonSkinShadow); 
-        if (type === EntityType.ENEMY_PAINTER) {
-             drawRect(ctx, sX + 70 + waddle, torsoY + 6, 6, 20, '#bdbdbd');
-             drawRect(ctx, sX + 70 + waddle, torsoY + 26, 8, 10, '#d50000'); 
-        }
+        // Arms (Sleeves)
+        const drawHooliArm = (ax: number, ay: number, swing: number) => {
+            drawRect(ctx, ax + swing, ay, 12, 30, COLORS.tracksuitGrey);
+            drawRect(ctx, ax + swing, ay + 28, 12, 4, COLORS.tracksuitDark); // Cuff
+            drawRect(ctx, ax + swing, ay + 32, 12, 10, COLORS.gammonSkin); // Hand
+        };
+        const armSwing = isMoving ? Math.sin(walkCycle) * 10 : 0;
+        drawHooliArm(bellyX - 8, torsoY + 2, -armSwing);
+        drawHooliArm(bellyX + hooliW - 4, torsoY + 2, armSwing);
+
     } else {
-        // Arm Waddle Swing
-        const armSwing = isMoving ? Math.sin(walkCycle) * 6 : 0;
-        drawFatArm(sX - 4 + waddle, torsoY + 6, -armSwing);
-        drawFatArm(sX + 46 + waddle, torsoY + 6, armSwing);
+        // STANDARD GAMMON
+        const bellyW = 44 + breath;
+        const bellyH = 46;
+        drawUnionJackShirt(ctx, bellyX, torsoY - 4, bellyW, bellyH, true);
+        drawRect(ctx, bellyX + 4, torsoY + bellyH - 2, bellyW - 8, 4, 'rgba(0,0,0,0.2)');
+        
+        const drawFatArm = (ax: number, ay: number, swing: number) => {
+             const sx = ax + swing;
+             drawRect(ctx, sx, ay, 14, 32, COLORS.gammonSkin);
+             drawRect(ctx, sx, ay, 4, 32, COLORS.gammonSkinShadow); 
+             drawRect(ctx, sx + 8, ay + 2, 4, 10, COLORS.gammonSkinHighlight); 
+             drawRect(ctx, sx - 2, ay + 30, 18, 12, COLORS.gammonSkin);
+        };
+
+        if (state === EntityState.ACTION) {
+            drawRect(ctx, sX + 40 + waddle, torsoY + 10, 26, 14, COLORS.gammonSkin);
+            drawRect(ctx, sX + 66 + waddle, torsoY + 8, 10, 16, COLORS.gammonSkinShadow); 
+            if (type === EntityType.ENEMY_PAINTER) {
+                 drawRect(ctx, sX + 70 + waddle, torsoY + 6, 6, 20, '#bdbdbd');
+                 drawRect(ctx, sX + 70 + waddle, torsoY + 26, 8, 10, '#d50000'); 
+            }
+        } else {
+            const armSwing = isMoving ? Math.sin(walkCycle) * 6 : 0;
+            drawFatArm(sX - 4 + waddle, torsoY + 6, -armSwing);
+            drawFatArm(sX + 46 + waddle, torsoY + 6, armSwing);
+        }
     }
 
     // --- HEAD ---
     const headY = sY + bounce - 6;
-    const headX = sX + 16 + waddle; // Apply waddle
+    let headX = sX + 16 + waddle;
     
-    // Thick Neck
+    if (type === EntityType.ENEMY_TANK) headX += 10;
+    if (type === EntityType.ENEMY_HOOLIGAN) headX -= 2;
+
+    // Neck
     drawRect(ctx, headX + 4, headY + 22, 22, 8, COLORS.gammonSkinShadow);
 
-    // Face Shape
+    // Face
     drawRect(ctx, headX, headY, 30, 28, COLORS.gammonSkin);
     
-    // Sunburn Gradient (Manual Dithering-ish)
-    drawRect(ctx, headX, headY, 30, 8, COLORS.gammonSkinRed); // Top Very Red
-    drawRect(ctx, headX, headY + 8, 30, 4, 'rgba(255, 82, 82, 0.5)'); // Fade
+    if (type === EntityType.ENEMY_HOOLIGAN) {
+        // Baseball Cap
+        drawRect(ctx, headX - 2, headY - 4, 34, 10, '#212121'); // Cap Dome
+        drawRect(ctx, headX - 8, headY + 4, 14, 4, '#212121'); // Peak (Side view ish)
+        // Shadow under cap
+        drawRect(ctx, headX, headY + 6, 30, 4, 'rgba(0,0,0,0.3)');
+    } else {
+        // Sunburn Gradient
+        drawRect(ctx, headX, headY, 30, 8, COLORS.gammonSkinRed); 
+        drawRect(ctx, headX, headY + 8, 30, 4, 'rgba(255, 82, 82, 0.5)'); 
+        // Bald Spot
+        drawRect(ctx, headX + 18, headY + 2, 8, 4, 'rgba(255,255,255,0.6)');
+    }
     
-    // Shiny Bald Spot
-    drawRect(ctx, headX + 18, headY + 2, 8, 4, 'rgba(255,255,255,0.6)');
+    // Features
+    drawRect(ctx, headX + 18, headY + 10, 4, 4, '#000'); // Eye
+    drawRect(ctx, headX + 14, headY + 7, 12, 3, '#b71c1c'); // Brow
     
-    // Angry Features
-    drawRect(ctx, headX + 18, headY + 10, 4, 4, '#000'); // Beady Eye
-    drawRect(ctx, headX + 14, headY + 7, 12, 3, '#b71c1c'); // Furrowed Brow
-    
-    // Vein popping
-    if (frame % 60 < 30) {
+    if (type === EntityType.ENEMY_TANK && frame % 60 < 30) {
+        // Vein popping
         drawRect(ctx, headX + 26, headY + 6, 2, 6, '#b71c1c');
         drawRect(ctx, headX + 24, headY + 8, 6, 2, '#b71c1c');
     }
 
     if (shoutText) {
         drawRect(ctx, headX + 16, headY + 18, 12, 8, '#3e2723'); // Yelling
-        // Spittle particles
         if (frame % 10 === 0) {
             ctx.fillStyle = '#fff';
             ctx.fillRect(headX + 28 + (Math.random()*10), headY + 20 + (Math.random()*5), 2, 2);
         }
     } else {
-        drawRect(ctx, headX + 18, headY + 20, 10, 2, '#3e2723'); // Grumpy
-        drawRect(ctx, headX + 18, headY + 24, 8, 2, '#3e2723'); // Chin fold
+        drawRect(ctx, headX + 18, headY + 20, 10, 2, '#3e2723'); 
+        drawRect(ctx, headX + 18, headY + 24, 8, 2, '#3e2723'); 
     }
   }
   
   ctx.restore();
+  
+  // Clear shadow blur from Telegraph if it was set
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
 
-  // Reset opacity if hit flash
-  if (isHit) {
+  // Reset opacity if hit flash or Power-ups
+  if (isHit || (speedBoostTimer && speedBoostTimer > 0) || (invincibilityTimer && invincibilityTimer > 0)) {
       ctx.globalAlpha = 1.0;
       ctx.globalCompositeOperation = 'source-over';
   }
@@ -506,9 +571,114 @@ export const drawEntity = (ctx: CanvasRenderingContext2D, entity: Entity, frame:
   }
 };
 
+export const drawPickup = (ctx: CanvasRenderingContext2D, pickup: Pickup, frame: number) => {
+    const { x, y, z } = pickup;
+    // Hover animation
+    const hover = Math.sin(frame * 0.1) * 5;
+    const dy = y - z - hover;
+    
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 15, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, dy);
+    
+    if (pickup.type === 'TEA') {
+        // Mug of Tea
+        // Body
+        drawRect(ctx, -10, -20, 20, 24, '#fff');
+        // Tea liquid
+        drawRect(ctx, -8, -18, 16, 20, '#795548'); 
+        // Handle
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(10, -10, 6, -Math.PI/2, Math.PI/2); ctx.stroke();
+        
+        // Steam
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        const steamX = Math.sin(frame*0.2) * 4;
+        drawRect(ctx, steamX - 2, -30 - (frame%20), 4, 6, '#fff');
+    } else if (pickup.type === 'CRUMPET') {
+        // Crumpet
+        // Base
+        ctx.fillStyle = '#fbc02d'; // Golden
+        ctx.beginPath(); ctx.ellipse(0, -10, 12, 8, 0, 0, Math.PI*2); ctx.fill();
+        // Holes
+        ctx.fillStyle = '#f57f17'; // Darker
+        drawRect(ctx, -4, -12, 2, 2, '#f57f17');
+        drawRect(ctx, 4, -10, 2, 2, '#f57f17');
+        drawRect(ctx, 0, -8, 2, 2, '#f57f17');
+        
+        // Shine
+        if (frame % 30 < 10) {
+            ctx.fillStyle = '#fff';
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath(); ctx.arc(-5, -12, 2, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+    } else if (pickup.type === 'SPEED') {
+        // Speed Bolt
+        ctx.fillStyle = '#00b0ff';
+        // Bolt shape
+        ctx.beginPath();
+        ctx.moveTo(4, -20);
+        ctx.lineTo(-6, -6);
+        ctx.lineTo(2, -4);
+        ctx.lineTo(-4, 10);
+        ctx.lineTo(8, -4);
+        ctx.lineTo(0, -6);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (frame % 10 < 5) {
+            ctx.shadowColor = '#00b0ff';
+            ctx.shadowBlur = 10;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+    } else if (pickup.type === 'INVINCIBILITY') {
+        // Star / Shield
+        const rot = frame * 0.05;
+        
+        // Spinning Star
+        ctx.save();
+        ctx.translate(0, -10);
+        ctx.rotate(rot);
+        ctx.fillStyle = '#ffd700';
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            ctx.lineTo(Math.cos((18 + i * 72) / 180 * Math.PI) * 12,
+                        -Math.sin((18 + i * 72) / 180 * Math.PI) * 12);
+            ctx.lineTo(Math.cos((54 + i * 72) / 180 * Math.PI) * 5,
+                        -Math.sin((54 + i * 72) / 180 * Math.PI) * 5);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+        ctx.restore();
+
+        // Pulsing Ring
+        const ringScale = 1 + Math.sin(frame * 0.2) * 0.2;
+        ctx.strokeStyle = '#ffeb3b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -10, 16 * ringScale, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+};
+
 const drawSpeechBubble = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number) => {
-    ctx.font = '10px "Press Start 2P"';
-    const lineHeight = 14;
+    ctx.font = '20px "Press Start 2P"'; // Bigger Font
+    const lineHeight = 28;
     const lines = text.split('\n');
     let maxWidth = 0;
     lines.forEach(line => {
@@ -516,7 +686,7 @@ const drawSpeechBubble = (ctx: CanvasRenderingContext2D, text: string, x: number
         if (m.width > maxWidth) maxWidth = m.width;
     });
 
-    const padding = 10;
+    const padding = 12;
     const w = maxWidth + padding * 2;
     const h = (lines.length * lineHeight) + padding + 6;
     
@@ -559,10 +729,11 @@ const drawSpeechBubble = (ctx: CanvasRenderingContext2D, text: string, x: number
     ctx.fillRect(x + 1, by + h - 2, 14, 4);
 };
 
-export const drawEnvironment = (ctx: CanvasRenderingContext2D, width: number, height: number, integrity: number) => {
-    const horizonY = 240; 
+export const drawEnvironment = (ctx: CanvasRenderingContext2D, width: number, height: number, integrity: number, cameraX: number) => {
+    // Dynamically calculate horizon
+    const horizonY = GROUND_Y_HORIZON;
 
-    // 1. SKY (Gradient)
+    // 1. SKY (Gradient - Static, no scroll)
     const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
     skyGrad.addColorStop(0, COLORS.skyTop);
     skyGrad.addColorStop(0.5, COLORS.skyMid);
@@ -570,88 +741,94 @@ export const drawEnvironment = (ctx: CanvasRenderingContext2D, width: number, he
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, width, horizonY);
 
-    // 2. CLOUDS (Parallax Layer 1)
+    // 2. CLOUDS (Parallax Layer 1 - Slow Scroll)
     const t = Date.now() / 10000;
+    const cloudScroll = cameraX * 0.2; // 20% scroll speed
     const cloudOffset1 = (t * 20) % width;
     const cloudOffset2 = (t * 40) % width;
 
-    drawCloud(ctx, 100 + cloudOffset1, 50, 1.5);
-    drawCloud(ctx, 600 + cloudOffset1, 80, 1.2);
-    
-    drawCloud(ctx, 350 + cloudOffset2, 40, 0.8);
-    drawCloud(ctx, 50 - cloudOffset2 + width, 60, 1.0);
-
-    // 3. FAR BACKGROUND (Silhouette Trees/City)
-    ctx.fillStyle = '#81d4fa'; // Light hazy blue
-    ctx.beginPath();
-    for(let i=0; i<=width; i+=20) {
-        ctx.lineTo(i, horizonY - 20 - Math.random()*15);
+    // Draw multiple sets to cover world
+    for (let i = 0; i < 3; i++) {
+        const cw = 800 * i;
+        drawCloud(ctx, 100 + cw + cloudOffset1 - cloudScroll, 50, 1.5);
+        drawCloud(ctx, 600 + cw + cloudOffset1 - cloudScroll, 80, 1.2);
+        drawCloud(ctx, 350 + cw + cloudOffset2 - cloudScroll, 40, 0.8);
     }
-    ctx.lineTo(width, horizonY);
-    ctx.lineTo(0, horizonY);
+
+    // 3. FAR BACKGROUND (Trees - Mid scroll)
+    const bgScroll = cameraX * 0.5;
+    ctx.fillStyle = '#81d4fa'; 
+    ctx.beginPath();
+    ctx.moveTo(-bgScroll, horizonY);
+    for(let i=0; i<=WORLD_WIDTH + width; i+=20) {
+        ctx.lineTo(i - bgScroll, horizonY - 20 - Math.random()*15);
+    }
+    ctx.lineTo(WORLD_WIDTH - bgScroll + width, horizonY);
     ctx.fill();
 
-    // 4. HOUSES (Procedural Sprite-like)
+    // 4. HOUSES & FENCES (World Layer - 1:1 Scroll)
     const houseY = horizonY - 140;
+    const fenceY = horizonY - 60;
     
-    // Draw row of houses
-    drawSpriteHouse(ctx, 20, houseY, 'brick');
-    drawSpriteHouse(ctx, 280, houseY, 'pebble');
-    drawSpriteHouse(ctx, 540, houseY, 'brick');
+    // Only draw what's visible
+    const startX = Math.floor(cameraX / 300) * 300 - 300;
+    const endX = cameraX + width + 300;
 
-    // 5. FENCE & HEDGES
-    // Fence with graffiti
-    for(let fx = 0; fx < width; fx+=30) {
-        drawRect(ctx, fx, horizonY - 60, 28, 60, '#795548');
-        drawRect(ctx, fx + 2, horizonY - 58, 24, 58, '#8d6e63'); // Wood Highlight
-        drawRect(ctx, fx, horizonY - 20, 30, 4, '#5d4037'); // Cross beam
+    // FENCES
+    for(let fx = startX; fx < endX; fx+=30) {
+        const drawFx = fx - cameraX;
+        drawRect(ctx, drawFx, fenceY, 28, 60, '#795548');
+        drawRect(ctx, drawFx + 2, fenceY + 2, 24, 58, '#8d6e63'); 
+        drawRect(ctx, drawFx, fenceY + 40, 30, 4, '#5d4037');
         
-        // Random Graffiti
         if (fx % 210 === 0) {
             ctx.font = '10px Arial';
             ctx.fillStyle = '#e91e63';
-            ctx.fillText('WOZ ERE', fx + 5, horizonY - 30);
+            ctx.fillText('WOZ ERE', drawFx + 5, fenceY + 30);
         }
     }
 
-    // Manicured Hedges
-    drawRect(ctx, 0, horizonY - 45, width, 45, COLORS.grassDark);
-    for(let i=0; i<width; i+=15) {
-        // Round top hedges
-        ctx.fillStyle = COLORS.grass;
-        ctx.beginPath();
-        ctx.arc(i + 7, horizonY - 45, 10, 0, Math.PI, true);
-        ctx.fill();
-        ctx.fillRect(i, horizonY - 45, 15, 45);
-        
-        // Leaves texture
-        ctx.fillStyle = COLORS.grassLight;
-        ctx.fillRect(i + 4, horizonY - 40, 2, 2);
-        ctx.fillRect(i + 10, horizonY - 30, 2, 2);
+    // HOUSES
+    for(let hx = startX; hx < endX; hx+=350) {
+        const type = (hx / 350) % 2 === 0 ? 'brick' : 'pebble';
+        drawSpriteHouse(ctx, hx - cameraX, houseY, type);
     }
 
-    // 6. PAVEMENT
+    // MANICURED HEDGES
+    const hedgeY = horizonY - 45;
+    drawRect(ctx, 0, hedgeY, width, 45, COLORS.grassDark); // Base fill for gaps
+    for(let i=startX; i<endX; i+=15) {
+        const drawHx = i - cameraX;
+        ctx.fillStyle = COLORS.grass;
+        ctx.beginPath();
+        ctx.arc(drawHx + 7, hedgeY, 10, 0, Math.PI, true);
+        ctx.fill();
+        ctx.fillRect(drawHx, hedgeY, 15, 45);
+        ctx.fillStyle = COLORS.grassLight;
+        ctx.fillRect(drawHx + 4, hedgeY + 5, 2, 2);
+    }
+
+    // 6. PAVEMENT & ROAD (World Scroll)
+    // Pavement
     const pavementGrad = ctx.createLinearGradient(0, horizonY, 0, horizonY + 60);
     pavementGrad.addColorStop(0, '#cfd8dc');
     pavementGrad.addColorStop(1, '#b0bec5');
     ctx.fillStyle = pavementGrad;
     ctx.fillRect(0, horizonY, width, 60);
     
-    // Slabs 3D Effect
     ctx.strokeStyle = '#90a4ae';
     ctx.lineWidth = 2;
-    for (let sx = 0; sx < width; sx += 60) {
-        ctx.beginPath();
-        ctx.moveTo(sx + 30, horizonY);
-        ctx.lineTo(sx, horizonY + 60);
-        ctx.stroke();
+    // Pavement Slabs
+    const slabOffset = -(cameraX % 60);
+    for (let sx = slabOffset; sx < width; sx += 60) {
+        ctx.beginPath(); ctx.moveTo(sx + 30, horizonY); ctx.lineTo(sx, horizonY + 60); ctx.stroke();
     }
     
     // Curb
     drawRect(ctx, 0, horizonY + 60, width, 10, '#eceff1'); 
-    drawRect(ctx, 0, horizonY + 70, width, 12, '#546e7a'); // Side drop
+    drawRect(ctx, 0, horizonY + 70, width, 12, '#546e7a');
 
-    // 7. ROAD
+    // Road
     const roadY = horizonY + 82;
     const roadGrad = ctx.createLinearGradient(0, roadY, 0, height);
     roadGrad.addColorStop(0, COLORS.road);
@@ -659,27 +836,36 @@ export const drawEnvironment = (ctx: CanvasRenderingContext2D, width: number, he
     ctx.fillStyle = roadGrad;
     ctx.fillRect(0, roadY, width, height - roadY);
     
-    // Road Texture/Noise
+    // Road Texture
     ctx.fillStyle = '#263238';
     for(let i=0; i<100; i++) {
-        const rx = (i * 47) % width;
+        // Pseudo-random noise that scrolls
+        const rx = ((i * 47) + (cameraX * 0.8)) % width; 
         const ry = roadY + (i * 31) % (height - roadY);
-        ctx.fillRect(rx, ry, 4, 2);
+        // Inverse scroll direction for texture to feel grounded? No, just move texture opposite to camera
+        const drawRx = ((i * 47) - cameraX) % width;
+        // Fix wrap
+        const wrapRx = drawRx < 0 ? drawRx + width : drawRx;
+        ctx.fillRect(wrapRx, ry, 4, 2);
     }
 
-    // Markings
+    // Road Markings
     ctx.fillStyle = '#eceff1';
-    drawRect(ctx, 0, roadY + 90, width, 8, '#eceff1'); 
-    
-    // Litter (Funny details)
-    drawLitter(ctx, 150, roadY + 40, 'can');
-    drawLitter(ctx, 550, roadY + 140, 'newspaper');
+    drawRect(ctx, 0, roadY + 90, width, 8, '#eceff1'); // Continuous line for now
 
-    // Props
-    drawLampPost(ctx, 450, horizonY + 40, integrity);
-    drawRoundabout(ctx, 680, roadY + 140, integrity);
+    // Litter
+    drawLitter(ctx, 150 - cameraX, roadY + 40, 'can');
+    drawLitter(ctx, 550 - cameraX, roadY + 140, 'newspaper');
+    drawLitter(ctx, 1150 - cameraX, roadY + 60, 'can');
+    drawLitter(ctx, 1550 - cameraX, roadY + 120, 'newspaper');
+
+    // Props (Static World Objects)
+    // We pass manually calculated screen coords since this function handles the environment layer
+    drawLampPost(ctx, 1100 - cameraX, horizonY + 40, integrity);
+    drawRoundabout(ctx, 2200 - cameraX, roadY + 140, integrity);
 };
 
+// ... (Keep drawSpriteHouse, drawCloud, drawLitter, drawLampPost, drawRoundabout exactly as is) ...
 const drawSpriteHouse = (ctx: CanvasRenderingContext2D, x: number, y: number, style: 'brick' | 'pebble') => {
     const w = 220;
     const h = 100;
@@ -930,8 +1116,10 @@ const drawRoundabout = (ctx: CanvasRenderingContext2D, x: number, y: number, int
     ctx.restore();
 };
 
-export const drawForeground = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    // Parallax Foreground Bushes (Blurry)
+export const drawForeground = (ctx: CanvasRenderingContext2D, width: number, height: number, cameraX: number) => {
+    // Parallax Foreground Bushes (Faster scroll)
+    const fgScroll = cameraX * 1.2;
+
     const drawBush = (bx: number, by: number, scale: number) => {
         ctx.fillStyle = 'rgba(27, 94, 32, 0.9)'; // Dark green
         ctx.beginPath();
@@ -939,16 +1127,20 @@ export const drawForeground = (ctx: CanvasRenderingContext2D, width: number, hei
         ctx.arc(bx + 30*scale, by + 10*scale, 35*scale, 0, Math.PI*2);
         ctx.fill();
     };
-
-    drawBush(80, height + 15, 1.4);
-    drawBush(width - 80, height + 20, 1.3);
+    
+    // Draw bushes periodically based on camera
+    const startX = Math.floor(cameraX / 500) * 500;
+    for(let i=startX; i<startX + width + 500; i+=500) {
+        drawBush(i - fgScroll, height + 15, 1.4);
+        drawBush(i + 400 - fgScroll, height + 20, 1.3);
+    }
 };
 
 export const drawParticles = (ctx: CanvasRenderingContext2D, particles: Particle[]) => {
     particles.forEach(p => {
         if (p.text) {
             ctx.save();
-            ctx.font = 'bold 12px "Press Start 2P"';
+            ctx.font = 'bold 24px "Press Start 2P"';
             ctx.lineWidth = 4;
             ctx.strokeStyle = '#000';
             ctx.strokeText(p.text, p.x, p.y - p.z);
