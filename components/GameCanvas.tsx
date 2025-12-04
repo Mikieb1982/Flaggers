@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { 
   GameState, Entity, EntityType, EntityState, Direction, Particle, Pickup 
@@ -468,7 +469,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         
         if (frameCount.current % (SPAWN_RATE / Math.ceil(wave/2)) === 0 && enemies.length < maxEnemies) {
             const spawnRight = Math.random() > 0.5;
-            const shouts = ['FLAG\nSHAGGER', 'LUV ME\nFLAG', 'SIMPLE\nAS', 'ATE\nNONCES', 'PROPER\nBREXIT', 'ENGLAND\nTIL I DIE'];
+            const shouts = ['I SHAG\nFLAGS', 'LUV ME\nFLAG', 'SIMPLE\nAS', 'ATE\nNONCES', 'PROPER\nBREXIT', 'ENGLAND\nTIL I DIE'];
             const randomShout = shouts[Math.floor(Math.random() * shouts.length)];
 
             // Enemy Type Selection Logic
@@ -663,7 +664,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         p.z += p.vz;
         p.vz -= GRAVITY;
         p.life--;
-        if (p.z < 0) { p.z = 0; p.vz *= -0.5; p.vx *= 0.8; p.vy *= 0.8; p.vy *= 0.8; }
+        if (p.z < 0) { p.z = 0; p.vz *= -0.5; p.vx *= 0.8; p.vy *= 0.8; p.vy *= 0.8; p.vy *= 0.8; }
         if (p.life <= 0) gameState.current.particles.splice(i, 1);
     }
 
