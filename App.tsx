@@ -16,8 +16,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleResize = () => {
+      const scaleX = window.innerWidth / CANVAS_WIDTH;
       const scaleY = window.innerHeight / CANVAS_HEIGHT;
-      setScale(scaleY);
+      setScale(Math.min(scaleX, scaleY));
     };
 
     window.addEventListener('resize', handleResize);
