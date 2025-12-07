@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import GameCanvas from './components/GameCanvas';
 import VirtualJoystick from './components/VirtualJoystick';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 
 const App: React.FC = () => {
   const [gameStarted, setGameStarted] = useState(false);
@@ -9,8 +10,22 @@ const App: React.FC = () => {
   const [score, setScore] = useState(0);
   const [health, setHealth] = useState(100);
   const [integrity, setIntegrity] = useState(100);
+  const [scale, setScale] = useState(1);
 
   const inputRef = useRef({ x: 0, y: 0, attack: false, jump: false });
+
+  useEffect(() => {
+    const handleResize = () => {
+      const scaleX = window.innerWidth / CANVAS_WIDTH;
+      const scaleY = window.innerHeight / CANVAS_HEIGHT;
+      setScale(Math.min(scaleX, scaleY));
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleStart = () => {
     setGameStarted(true);
@@ -62,7 +77,10 @@ const App: React.FC = () => {
     <div className="fixed inset-0 bg-[#000] flex flex-col items-center justify-center overflow-hidden select-none touch-none">
       
       {/* ARCADE CABINET CONTAINER */}
-      <div className="relative w-full h-full md:max-w-3xl md:h-[95vh] flex flex-col shadow-2xl overflow-hidden rounded-t-xl" style={woodStyle}>
+      <div 
+        className="relative flex flex-col shadow-2xl overflow-hidden rounded-t-xl" 
+        style={{...woodStyle, width: CANVAS_WIDTH, height: CANVAS_HEIGHT, transform: `scale(${scale})`}}
+      >
         
         {/* 1. MARQUEE SECTION */}
         <div className="h-[12%] w-full bg-black relative flex items-center justify-center p-4 z-20 border-b-8 border-[#3e2723] shadow-lg">
