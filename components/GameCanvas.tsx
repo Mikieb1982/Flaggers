@@ -1,17 +1,17 @@
 
 import React, { useRef, useEffect } from 'react';
 import { 
-  GameState, Entity, EntityType, EntityState, Direction, Particle, Pickup 
+  GameState, Entity, EntityType, EntityState, Direction, Particle, Pickup, FlagPole 
 } from '../types';
 import { 
   CANVAS_WIDTH, CANVAS_HEIGHT, WORLD_WIDTH, GRAVITY, FRICTION, ACCELERATION, WALK_SPEED, WALK_SPEED_Y,
   JUMP_FORCE, GROUND_Y_HORIZON, GROUND_Y_MAX, HERO_WIDTH, HERO_HEIGHT,
   ENEMY_WIDTH, ENEMY_HEIGHT, TANK_WIDTH, TANK_HEIGHT, HOOLIGAN_WIDTH, HOOLIGAN_HEIGHT,
   ATTACK_DURATION, HIT_BOX_RANGE_X, HIT_BOX_RANGE_Y,
-  SPAWN_RATE, HURT_DURATION, LAMP_POST_X, LAMP_POST_Z_DEPTH, ROUNDABOUT_X, ROUNDABOUT_Z_DEPTH,
+  SPAWN_RATE, HURT_DURATION, FLAG_POLE_LOCATIONS, FLAG_CAPTURE_RADIUS, FLAG_RAISE_SPEED, FLAG_LOWER_SPEED,
   COMBO_WINDOW, SPEED_BOOST_DURATION, INVINCIBILITY_DURATION, SPEED_MULTIPLIER
 } from '../constants';
-import { drawEnvironment, drawEntity, drawShadow, drawParticles, drawForeground, drawPickup } from './SpriteRenderer';
+import { drawEnvironment, drawEntity, drawShadow, drawParticles, drawForeground, drawPickup, drawFlagPole } from './SpriteRenderer';
 
 interface GameCanvasProps {
   gameStarted: boolean;
@@ -31,23 +31,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const accumulatorRef = useRef<number>(0);
   const keys = useRef<{ [key: string]: boolean }>({});
   
-  // Track gameStarted via ref to avoid stale closures in the loop
   const gameStartedRef = useRef(gameStarted);
-  
-  // Track last known values to prevent spamming React state updates
   const lastReportedHealth = useRef(100);
 
   const gameState = useRef<GameState>({
     hero: {
       id: 'hero',
-      type: EntityType.HERO,
+      type: EntityType.PLAYER_GAMMON,
       x: 100,
       y: 350,
       z: 0,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      width: HERO_WIDTH,
+      vx: 0, vy: 0, vz: 0,
+      width: HERO_WIDTH, // Reusing existing const
       height: HERO_HEIGHT,
       direction: Direction.RIGHT,
       state: EntityState.IDLE,
@@ -68,8 +63,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     enemies: [],
     particles: [],
     pickups: [],
+    flagPoles: [],
     score: 0,
-    suburbanIntegrity: 100,
+    sovereignty: 0, 
     gameOver: false,
     gameWon: false,
     wave: 1,
@@ -78,11 +74,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   });
 
   const frameCount = useRef(0);
-  const FIXED_TIME_STEP = 1000 / 60; // 60 updates per second
+  const FIXED_TIME_STEP = 1000 / 60;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent default scrolling for game keys
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyZ'].includes(e.code)) {
          e.preventDefault(); 
       }
@@ -101,25 +96,30 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     };
   }, []);
 
-  // Update ref when prop changes
   useEffect(() => {
     gameStartedRef.current = gameStarted;
 
-    // --- RESET GAME STATE WHEN START IS CLICKED ---
     if (gameStarted) {
-        // Clear keys to prevent stuck inputs
         keys.current = {};
         
+        // Init Flag Poles (Start DOWN)
+        const flags: FlagPole[] = FLAG_POLE_LOCATIONS.map((loc, i) => ({
+            id: i,
+            x: loc.x,
+            y: loc.y,
+            raiseLevel: 0,
+            isContested: false,
+            isFullyRaised: false
+        }));
+
         gameState.current = {
           hero: {
             id: 'hero',
-            type: EntityType.HERO,
+            type: EntityType.PLAYER_GAMMON,
             x: 100,
             y: 350,
             z: 0,
-            vx: 0,
-            vy: 0,
-            vz: 0,
+            vx: 0, vy: 0, vz: 0,
             width: HERO_WIDTH,
             height: HERO_HEIGHT,
             direction: Direction.RIGHT,
@@ -141,8 +141,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           enemies: [],
           particles: [],
           pickups: [],
+          flagPoles: flags,
           score: 0,
-          suburbanIntegrity: 100,
+          sovereignty: 0,
           gameOver: false,
           gameWon: false,
           wave: 1,
@@ -151,10 +152,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         };
         frameCount.current = 0;
         lastReportedHealth.current = 100;
-        // Trigger initial updates
         onScoreUpdate(0);
         onHealthUpdate(100);
-        onIntegrityUpdate(100);
+        onIntegrityUpdate(0); // Start at 0, build to 100
     }
   }, [gameStarted, onScoreUpdate, onHealthUpdate, onIntegrityUpdate]);
 
@@ -184,7 +184,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           id: Math.random().toString(),
           type,
           x, y, z,
-          life: 800 // ~13 seconds
+          life: 800
       });
   };
 
@@ -197,8 +197,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     let damage = 25;
     let knockback = 10;
     
-    // Combo Logic for Hero
-    if (attacker.type === EntityType.HERO) {
+    // Player Combo Logic
+    if (attacker.type === EntityType.PLAYER_GAMMON) {
         const now = Date.now();
         if (now - (attacker.lastAttackTime || 0) < COMBO_WINDOW) {
             attacker.comboStage = ((attacker.comboStage || 0) + 1) % 3;
@@ -207,34 +207,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         attacker.lastAttackTime = now;
 
-        if (attacker.comboStage === 1) { damage = 35; knockback = 15; } // Hook
-        if (attacker.comboStage === 2) { damage = 50; knockback = 25; } // Overhead Smash
+        if (attacker.comboStage === 1) { damage = 35; knockback = 15; } 
+        if (attacker.comboStage === 2) { damage = 50; knockback = 25; } 
         
         const offset = attacker.direction === Direction.RIGHT ? 60 : -60;
-        const words = ['SOURCE?', 'CONTEXT!', 'NUANCE!', 'SPELLING!', 'GRAMMAR!', 'HISTORY!', 'DATA!'];
+        const words = ['BOSH!', 'SIMPLE AS!', 'SORTED!', 'AV IT!', 'BREXIT!', 'TWO WORLD WARS!'];
         const word = words[Math.floor(Math.random() * words.length)];
-        spawnParticle(attacker.x + offset, attacker.y, attacker.height / 2, '#81d4fa', word);
+        spawnParticle(attacker.x + offset, attacker.y, attacker.height / 2, '#ef5350', word);
     } else {
         // Enemy Damage Scaling
-        if (attacker.type === EntityType.ENEMY_TANK) {
-            damage = 40;
-            knockback = 15;
-        } else if (attacker.type === EntityType.ENEMY_HOOLIGAN) {
-            damage = 15;
-            knockback = 5;
-        }
+        damage = 10; // Professionals are weaker physically but numerous
+        if (attacker.type === EntityType.ENEMY_LAWYER) damage = 15;
     }
 
-    const targets = attacker.type === EntityType.HERO ? gameState.current.enemies : [gameState.current.hero];
+    const targets = attacker.type === EntityType.PLAYER_GAMMON ? gameState.current.enemies : [gameState.current.hero];
 
     targets.forEach(target => {
         if (target.state === EntityState.DYING || target.state === EntityState.DEAD) return;
 
-        // INVINCIBILITY CHECK
-        if (target.type === EntityType.HERO && (target.invincibilityTimer || 0) > 0) {
-            // Deflect effect
-            if (attacker.type !== EntityType.HERO) {
-                spawnParticle(target.x, target.y, target.height/2, '#fff', 'BLOCK!');
+        if (target.type === EntityType.PLAYER_GAMMON && (target.invincibilityTimer || 0) > 0) {
+            if (attacker.type !== EntityType.PLAYER_GAMMON) {
+                spawnParticle(target.x, target.y, target.height/2, '#fff', 'IGNORED!');
             }
             return;
         }
@@ -252,26 +245,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             target.stateTimer = HURT_DURATION;
             target.isHit = true;
             
-            // Knockback logic
-            let finalKnockback = knockback;
-            // Tanks resist knockback
-            if (target.type === EntityType.ENEMY_TANK) finalKnockback *= 0.2;
-            
-            target.vx = attacker.direction * finalKnockback;
+            target.vx = attacker.direction * knockback;
             target.vz = 5;
 
-            const impacts = ['SCHOOLED!', 'DEBUNKED!', 'CITED!', 'REVIEWED!', 'FACT CHECK!'];
+            // Impact Text depending on who got hit
+            const enemyImpacts = ['CANCELLED!', 'WOKE!', 'TRIGGERED!', 'SNOWFLAKE!'];
+            const playerImpacts = ['LAWSUIT!', 'DATA!', 'LOGIC!', 'FACTS!'];
+            
+            const impacts = target.type === EntityType.PLAYER_GAMMON ? playerImpacts : enemyImpacts;
             const randomImpact = impacts[Math.floor(Math.random() * impacts.length)];
             spawnParticle(target.x, target.y, target.height + target.z, '#ffea00', randomImpact);
 
             if (target.health <= 0) {
                 target.state = EntityState.DYING;
                 target.stateTimer = 30;
-                if (target.type !== EntityType.HERO) {
+                if (target.type !== EntityType.PLAYER_GAMMON) {
                     gameState.current.score += target.scoreValue;
                     onScoreUpdate(gameState.current.score);
-                    
-                    // Drop chance
                     if (Math.random() < 0.25) {
                         spawnPickup(target.x, target.y, target.z);
                     }
@@ -284,44 +274,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const update = () => {
     if (gameState.current.gameOver) return;
     
-    const { hero, enemies } = gameState.current;
+    const { hero, enemies, flagPoles } = gameState.current;
     frameCount.current++;
     const isGameRunning = gameStartedRef.current;
 
-    // --- CAMERA LOGIC ---
     if (isGameRunning) {
-        // Target is hero position, but biased to the left (hero is at 1/3 of screen)
         let targetCamX = hero.x - (CANVAS_WIDTH * 0.35);
-        
-        // Clamp Target
         targetCamX = Math.max(0, Math.min(targetCamX, WORLD_WIDTH - CANVAS_WIDTH));
-        
-        // Smooth Lerp
         const lerpFactor = 0.1;
         gameState.current.cameraX += (targetCamX - gameState.current.cameraX) * lerpFactor;
-        
-        // Clamp final
         gameState.current.cameraX = Math.max(0, Math.min(gameState.current.cameraX, WORLD_WIDTH - CANVAS_WIDTH));
     }
 
-    // --- INPUT HANDLING ---
-    // Only process input and movement if Game Started
     if (isGameRunning) {
         let inputX = 0;
         let inputY = 0;
         
-        // Check joystick first
         if (Math.abs(inputRef.current.x) > 0.1 || Math.abs(inputRef.current.y) > 0.1) {
             inputX = inputRef.current.x;
             inputY = inputRef.current.y;
         } else {
-            // Check Keyboard
             if (keys.current['ArrowLeft']) inputX -= 1;
             if (keys.current['ArrowRight']) inputX += 1;
             if (keys.current['ArrowUp']) inputY -= 1;
             if (keys.current['ArrowDown']) inputY += 1;
             
-            // Normalize keyboard diagonal
             const mag = Math.sqrt(inputX * inputX + inputY * inputY);
             if (mag > 1) {
                 inputX /= mag;
@@ -344,8 +321,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         if (hero.state !== EntityState.HURT && hero.state !== EntityState.DYING) {
             if (attack) {
                 performAttack(hero, 'PUNCH');
-                hero.vx *= 0.6;
-                hero.vy *= 0.6;
+                hero.vx *= 0.8;
+                hero.vy *= 0.8;
             } 
             else if (jump && hero.z === 0 && hero.state !== EntityState.ATTACK) {
                 hero.vz = JUMP_FORCE;
@@ -356,10 +333,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     if (inputX !== 0) hero.direction = inputX > 0 ? Direction.RIGHT : Direction.LEFT;
                     
                     const isAirborne = hero.z > 0;
-                    // Reduced control in air, high accel on ground
-                    let currentAccel = isAirborne ? ACCELERATION * 0.3 : ACCELERATION;
+                    let currentAccel = isAirborne ? ACCELERATION * 0.4 : ACCELERATION;
                     
-                    // SPEED BOOST MULTIPLIER
                     if (hero.speedBoostTimer && hero.speedBoostTimer > 0) {
                         currentAccel *= SPEED_MULTIPLIER;
                     }
@@ -372,14 +347,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     }
                 } else {
                     if (hero.z === 0) hero.state = EntityState.IDLE;
-                    
-                    // Arcade Physics: High friction on ground (snappy stop), Low friction in air (momentum)
-                    const currentFric = hero.z > 0 ? 0.9 : FRICTION;
-                    hero.vx *= currentFric;
-                    hero.vy *= currentFric;
                 }
                 
-                // Speed Clamping (affected by Boost)
+                const currentFric = hero.z > 0 ? 0.95 : FRICTION;
+                hero.vx *= currentFric;
+                hero.vy *= currentFric;
+                
+                if (Math.abs(hero.vx) < 0.1) hero.vx = 0;
+                if (Math.abs(hero.vy) < 0.1) hero.vy = 0;
+
                 let maxSpeedX = WALK_SPEED;
                 let maxSpeedY = WALK_SPEED_Y;
                 if (hero.speedBoostTimer && hero.speedBoostTimer > 0) {
@@ -389,14 +365,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
                 if (Math.abs(hero.vx) > maxSpeedX) hero.vx = Math.sign(hero.vx) * maxSpeedX;
                 if (Math.abs(hero.vy) > maxSpeedY) hero.vy = Math.sign(hero.vy) * maxSpeedY;
-                
-                // Zero out small velocities to prevent micro-sliding
-                if (Math.abs(hero.vx) < 0.1) hero.vx = 0;
-                if (Math.abs(hero.vy) < 0.1) hero.vy = 0;
             }
         } else {
-            hero.vx *= FRICTION;
-            hero.vy *= FRICTION;
+            hero.vx *= 0.9;
+            hero.vy *= 0.9;
         }
 
         hero.x += hero.vx;
@@ -405,11 +377,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         hero.vz -= GRAVITY;
         if (hero.z < 0) { hero.z = 0; hero.vz = 0; }
         
-        // Bounds Checking (Against WORLD WIDTH now)
         hero.x = Math.max(HERO_WIDTH/2, Math.min(WORLD_WIDTH - HERO_WIDTH/2, hero.x));
         hero.y = Math.max(GROUND_Y_HORIZON, Math.min(GROUND_Y_MAX, hero.y));
 
-        // Manage Timers
         if (hero.state === EntityState.ATTACK) {
             hero.stateTimer--;
             if (hero.stateTimer <= 0) hero.state = EntityState.IDLE;
@@ -424,7 +394,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         if (hero.speedBoostTimer && hero.speedBoostTimer > 0) hero.speedBoostTimer--;
         if (hero.invincibilityTimer && hero.invincibilityTimer > 0) hero.invincibilityTimer--;
 
-        // Pickup Collection
+        // Taunts for Player
+        if (hero.state !== EntityState.DYING && hero.state !== EntityState.HURT && Math.random() < 0.003) {
+            const taunts = [
+                "can't say anything\nthese days", 
+                "if you say you're\nEnglish you get\narrested and thrown\nin jail", 
+                "Ingerland", 
+                "make britun\ngrate again", 
+                "am not racist\nbut", 
+                "simple as",
+                "two world wars\nand one world cup",
+                "bloody woke\nnonsense"
+            ];
+            hero.shoutText = taunts[Math.floor(Math.random() * taunts.length)];
+            hero.shoutTimer = 180;
+        }
+        if (hero.shoutTimer && hero.shoutTimer > 0) {
+            hero.shoutTimer--;
+            if (hero.shoutTimer <= 0) hero.shoutText = undefined;
+        }
+
         for (let i = gameState.current.pickups.length - 1; i >= 0; i--) {
             const p = gameState.current.pickups[i];
             const dx = Math.abs(hero.x - p.x);
@@ -432,7 +421,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             const dz = Math.abs(hero.z - p.z);
             
             if (dx < 40 && dy < 20 && dz < 40) {
-                // Collect
                 if (p.type === 'TEA') {
                     hero.health = Math.min(hero.maxHealth, hero.health + 20);
                     spawnParticle(hero.x, hero.y, hero.height, '#4caf50', 'HEALTH!');
@@ -453,50 +441,101 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
     } else {
-        // --- ATTRACT MODE (Game not started) ---
-        // Just keep hero idle
         hero.state = EntityState.IDLE;
         hero.vx = 0; hero.vy = 0; hero.z = 0;
         hero.x = 100;
         hero.y = 350;
     }
 
-    // --- ENEMY LOGIC (Only if Game Started) ---
+    // --- FLAG POLE LOGIC (FLIPPED) ---
     if (isGameRunning) {
-        // Spawning
+        let totalRaise = 0;
+        
+        flagPoles.forEach(pole => {
+            let heroPresent = false;
+            let enemyCount = 0;
+
+            const hDistX = Math.abs(hero.x - pole.x);
+            const hDistY = Math.abs(hero.y - pole.y);
+            if (hDistX < FLAG_CAPTURE_RADIUS && hDistY < FLAG_CAPTURE_RADIUS / 2) {
+                heroPresent = true;
+                if (hero.state === EntityState.IDLE || hero.state === EntityState.WALK) {
+                    hero.state = EntityState.ACTION; // Raising animation
+                }
+            } else if (hero.state === EntityState.ACTION) {
+                // Check if interacting with any other flag
+                // Simplified: Just reset if away from current pole loop? 
+                // No, state reset happens in movement logic if input is pressed.
+            }
+
+            enemies.forEach(enemy => {
+                if (enemy.state !== EntityState.DEAD && enemy.state !== EntityState.DYING) {
+                    const eDistX = Math.abs(enemy.x - pole.x);
+                    const eDistY = Math.abs(enemy.y - pole.y);
+                    if (eDistX < FLAG_CAPTURE_RADIUS && eDistY < FLAG_CAPTURE_RADIUS / 2) {
+                        enemyCount++;
+                        if (enemy.state === EntityState.IDLE || enemy.state === EntityState.WALK) {
+                             enemy.state = EntityState.ACTION; 
+                        }
+                    } else if (enemy.state === EntityState.ACTION && enemy.targetId === `flag_${pole.id}`) {
+                        enemy.state = EntityState.IDLE;
+                    }
+                }
+            });
+
+            pole.isContested = heroPresent && enemyCount > 0;
+            
+            if (pole.isContested) {
+                // Stalemate
+            } else if (heroPresent) {
+                pole.raiseLevel += FLAG_RAISE_SPEED * 1.5; // Hero raises faster
+            } else if (enemyCount > 0) {
+                pole.raiseLevel -= FLAG_LOWER_SPEED * enemyCount;
+            }
+
+            pole.raiseLevel = Math.max(0, Math.min(100, pole.raiseLevel));
+            pole.isFullyRaised = pole.raiseLevel >= 100;
+            
+            totalRaise += pole.raiseLevel;
+        });
+
+        // "Sovereignty" based on flags up
+        const maxRaise = flagPoles.length * 100;
+        const currentSovereignty = (totalRaise / maxRaise) * 100;
+        
+        if (Math.abs(gameState.current.sovereignty - currentSovereignty) > 1) {
+            gameState.current.sovereignty = currentSovereignty;
+            onIntegrityUpdate(currentSovereignty);
+        }
+    }
+
+    // --- ENEMY LOGIC (PROFESSIONALS) ---
+    if (isGameRunning) {
         const wave = gameState.current.wave;
         const maxEnemies = 4 + wave;
         
         if (frameCount.current % (SPAWN_RATE / Math.ceil(wave/2)) === 0 && enemies.length < maxEnemies) {
             const spawnRight = Math.random() > 0.5;
-            const shouts = ['I SHAG\nFLAGS', 'LUV ME\nFLAG', 'SIMPLE\nAS', 'ATE\nNONCES', 'PROPER\nBREXIT', 'ENGLAND\nTIL I DIE'];
-            const randomShout = shouts[Math.floor(Math.random() * shouts.length)];
-
-            // Enemy Type Selection Logic
-            let eType = EntityType.ENEMY_FLAGGER;
+            
+            // Enemy Type Selection
+            let eType = EntityType.ENEMY_LAWYER;
             const rand = Math.random();
             let width = ENEMY_WIDTH;
             let height = ENEMY_HEIGHT;
-            let hp = 40 + (wave * 10);
+            let hp = 40 + (wave * 5);
             let scoreVal = 100;
             
-            if (wave >= 4 && rand < 0.15) {
-                eType = EntityType.ENEMY_TANK;
-                width = TANK_WIDTH;
-                height = TANK_HEIGHT;
-                hp = 120 + (wave * 20);
-                scoreVal = 500;
-            } else if (wave >= 2 && rand < 0.35) {
-                eType = EntityType.ENEMY_HOOLIGAN;
-                width = HOOLIGAN_WIDTH;
-                height = HOOLIGAN_HEIGHT;
-                hp = 30 + (wave * 5);
+            if (rand < 0.33) {
+                eType = EntityType.ENEMY_TEACHER;
+                scoreVal = 150;
+            } else if (rand < 0.66) {
+                eType = EntityType.ENEMY_LIBRARIAN;
+                scoreVal = 120;
+            } else {
+                eType = EntityType.ENEMY_LAWYER;
                 scoreVal = 200;
-            } else if (rand > 0.6) {
-                eType = EntityType.ENEMY_PAINTER;
             }
 
-            // Spawn relative to camera viewport
             const camX = gameState.current.cameraX;
             const spawnX = spawnRight ? camX + CANVAS_WIDTH + 50 : camX - 50;
 
@@ -516,15 +555,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 stateTimer: 0,
                 attackCooldown: 0,
                 scoreValue: scoreVal,
-                color: 'red',
+                color: 'grey',
                 isHit: false,
-                shoutText: randomShout,
-                shoutTimer: 180 
+                shoutText: '',
+                shoutTimer: 0
             };
             enemies.push(newEnemy);
         }
 
-        // Enemy Updates
         enemies.forEach(enemy => {
             if (enemy.state === EntityState.DEAD) return;
 
@@ -533,15 +571,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             enemy.z += enemy.vz;
             enemy.vz -= GRAVITY;
             if (enemy.z < 0) { enemy.z = 0; enemy.vz = 0; }
+            
             enemy.y = Math.max(GROUND_Y_HORIZON, Math.min(GROUND_Y_MAX, enemy.y));
+            enemy.x = Math.max(ENEMY_WIDTH/2, Math.min(WORLD_WIDTH - ENEMY_WIDTH/2, enemy.x));
 
             if (enemy.shoutTimer && enemy.shoutTimer > 0) {
                 enemy.shoutTimer--;
                 if (enemy.shoutTimer <= 0) enemy.shoutText = undefined;
-            } else if (enemy.state !== EntityState.DYING && enemy.state !== EntityState.HURT && enemy.state !== EntityState.PRE_ATTACK && enemy.state !== EntityState.ATTACK) {
-                if (Math.random() < 0.005) {
-                    const taunts = ["Who are ya?", "Come on then!", "Get out\nmy pub", "Absolute\nUnit", "Nuff said", "Jog on", "Soft lad", "Bang out\nof order"];
-                    enemy.shoutText = taunts[Math.floor(Math.random() * taunts.length)];
+            } else if (enemy.state !== EntityState.DYING && enemy.state !== EntityState.HURT && enemy.state !== EntityState.PRE_ATTACK) {
+                if (Math.random() < 0.003) {
+                    const lecture = ["Well, actually...", "Have you read\nthe study?", "Check your\nprivilege", "It's complex", "The data says...", "That's offensive", "I'm calling\nHR"];
+                    enemy.shoutText = lecture[Math.floor(Math.random() * lecture.length)];
                     enemy.shoutTimer = 120;
                 }
             }
@@ -551,7 +591,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 if (enemy.stateTimer <= 0) {
                     performAttack(enemy, 'PUNCH');
                 }
-                return; // Stop moving while winding up
+                return;
             }
 
             if (enemy.state === EntityState.HURT) {
@@ -573,90 +613,68 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 return; 
             }
 
-            // AI Logic
             const distToHeroX = Math.abs(enemy.x - hero.x);
             const distToHeroY = Math.abs(enemy.y - hero.y);
 
-            // Aggressive Types target Hero more often
-            const isAggressive = enemy.type === EntityType.ENEMY_HOOLIGAN || enemy.type === EntityType.ENEMY_TANK;
-            const aggroRange = isAggressive ? 600 : 150; // Hooligans/Tanks see hero from far away
-
-            if (distToHeroX < aggroRange && distToHeroY < (isAggressive ? 150 : 50) && hero.health > 0) {
-                if (enemy.state === EntityState.ACTION) {
-                    enemy.state = EntityState.IDLE;
-                    spawnParticle(enemy.x, enemy.y, 50, '#fff', 'Oi!');
+            let targetFlag: FlagPole | null = null;
+            let minDist = 9999;
+            
+            // Prioritize raised flags to lower them
+            flagPoles.forEach(pole => {
+                if (pole.raiseLevel > 0) {
+                    const d = Math.abs(enemy.x - pole.x);
+                    if (d < minDist) {
+                        minDist = d;
+                        targetFlag = pole;
+                    }
                 }
+            });
+
+            // If hero is close, attack hero. Otherwise go for flags.
+            if (distToHeroX < 200 && distToHeroY < 100 && hero.health > 0) {
+                if (enemy.state === EntityState.ACTION) enemy.state = EntityState.IDLE;
                 
-                // Stop distance
-                const stopDist = enemy.type === EntityType.ENEMY_HOOLIGAN ? 30 : 40;
-
+                const stopDist = 40;
                 if (distToHeroX > stopDist) {
-                    // Different speeds
-                    let speedMod = 0.4;
-                    if (enemy.type === EntityType.ENEMY_HOOLIGAN) speedMod = 0.7; // Fast
-                    if (enemy.type === EntityType.ENEMY_TANK) speedMod = 0.2; // Slow
-
-                    enemy.vx = (hero.x - enemy.x > 0 ? 1 : -1) * (WALK_SPEED * speedMod); 
+                    enemy.vx = (hero.x - enemy.x > 0 ? 1 : -1) * (WALK_SPEED * 0.5); 
                     enemy.direction = enemy.vx > 0 ? Direction.RIGHT : Direction.LEFT;
                     enemy.state = EntityState.WALK;
-                    if (frameCount.current % 15 === 0) spawnParticle(enemy.x, enemy.y, 0, '#cfd8dc');
                 } else {
                     enemy.vx = 0;
                     enemy.direction = hero.x > enemy.x ? Direction.RIGHT : Direction.LEFT;
                     
-                    // Attack chance
-                    let attackProb = 0.02;
-                    if (enemy.type === EntityType.ENEMY_HOOLIGAN) attackProb = 0.04;
-                    
-                    if (enemy.state !== EntityState.PRE_ATTACK && enemy.state !== EntityState.ATTACK && Math.random() < attackProb) {
+                    if (enemy.state !== EntityState.PRE_ATTACK && enemy.state !== EntityState.ATTACK && Math.random() < 0.03) {
                         enemy.state = EntityState.PRE_ATTACK;
-                        enemy.stateTimer = enemy.type === EntityType.ENEMY_HOOLIGAN ? 10 : 25; // Hooligans telegraph faster
+                        enemy.stateTimer = 20; 
                     }
                 }
                 
                 if (distToHeroY > 5) {
-                    let speedModY = 0.25;
-                    if (enemy.type === EntityType.ENEMY_HOOLIGAN) speedModY = 0.4;
-                     if (enemy.type === EntityType.ENEMY_TANK) speedModY = 0.15;
-
-                    enemy.vy = (hero.y - enemy.y > 0 ? 1 : -1) * (WALK_SPEED * speedModY);
+                    enemy.vy = (hero.y - enemy.y > 0 ? 1 : -1) * (WALK_SPEED * 0.3);
                 } else {
                     enemy.vy = 0;
                 }
-            } else {
-                // Objective Seeking (Flaggers/Painters only)
-                if (isAggressive) {
-                    // Hooligans/Tanks wander if no hero
-                    enemy.state = EntityState.IDLE;
+            } else if (targetFlag) {
+                enemy.targetId = `flag_${targetFlag.id}`;
+                const distToObjX = Math.abs(enemy.x - targetFlag.x);
+
+                if (distToObjX < 15) {
                     enemy.vx = 0; enemy.vy = 0;
+                    enemy.state = EntityState.ACTION;
                 } else {
-                    let targetX = enemy.type === EntityType.ENEMY_FLAGGER ? LAMP_POST_X - 10 : ROUNDABOUT_X;
-                    let targetY = enemy.type === EntityType.ENEMY_FLAGGER ? LAMP_POST_Z_DEPTH : ROUNDABOUT_Z_DEPTH;
-
-                    const distToObjX = Math.abs(enemy.x - targetX);
-                    const distToObjY = Math.abs(enemy.y - targetY);
-
-                    if (distToObjX < 15 && distToObjY < 15) {
-                        enemy.vx = 0; enemy.vy = 0;
-                        enemy.state = EntityState.ACTION;
-                        if (frameCount.current % 60 === 0) {
-                            gameState.current.suburbanIntegrity -= 1.5;
-                            onIntegrityUpdate(gameState.current.suburbanIntegrity);
-                        }
-                    } else {
-                        enemy.state = EntityState.WALK;
-                        const angle = Math.atan2(targetY - enemy.y, targetX - enemy.x);
-                        enemy.vx = Math.cos(angle) * (WALK_SPEED * 0.4);
-                        enemy.vy = Math.sin(angle) * (WALK_SPEED * 0.4);
-                        enemy.direction = enemy.vx > 0 ? Direction.RIGHT : Direction.LEFT;
-                        if (frameCount.current % 15 === 0) spawnParticle(enemy.x, enemy.y, 0, '#cfd8dc');
-                    }
+                    enemy.state = EntityState.WALK;
+                    const angle = Math.atan2(targetFlag.y - enemy.y, targetFlag.x - enemy.x);
+                    enemy.vx = Math.cos(angle) * (WALK_SPEED * 0.4);
+                    enemy.vy = Math.sin(angle) * (WALK_SPEED * 0.4);
+                    enemy.direction = enemy.vx > 0 ? Direction.RIGHT : Direction.LEFT;
                 }
+            } else {
+                enemy.state = EntityState.IDLE;
+                enemy.vx = 0; enemy.vy = 0;
             }
         });
     }
 
-    // Particle Updates (Always run for atmosphere)
     for (let i = gameState.current.particles.length - 1; i >= 0; i--) {
         const p = gameState.current.particles[i];
         p.x += p.vx;
@@ -664,11 +682,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         p.z += p.vz;
         p.vz -= GRAVITY;
         p.life--;
-        if (p.z < 0) { p.z = 0; p.vz *= -0.5; p.vx *= 0.8; p.vy *= 0.8; p.vy *= 0.8; p.vy *= 0.8; }
+        if (p.z < 0) { p.z = 0; p.vz *= -0.5; p.vx *= 0.8; p.vy *= 0.8; }
         if (p.life <= 0) gameState.current.particles.splice(i, 1);
     }
 
-    // Pickup Updates
     for (let i = gameState.current.pickups.length - 1; i >= 0; i--) {
         const p = gameState.current.pickups[i];
         p.life--;
@@ -677,10 +694,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     gameState.current.enemies = gameState.current.enemies.filter(e => e.state !== EntityState.DEAD);
 
-    // Only check Game Over if game started
-    if (isGameRunning && (gameState.current.suburbanIntegrity <= 0 || hero.health <= 0)) {
+    if (isGameRunning && hero.health <= 0) {
         gameState.current.gameOver = true;
         onGameOver(false);
+    }
+    
+    // Win Condition
+    const allFlagsRaised = gameState.current.flagPoles.every(p => p.raiseLevel >= 100);
+    if (isGameRunning && allFlagsRaised && !gameState.current.gameWon) {
+        gameState.current.gameWon = true;
+        gameState.current.gameOver = true;
+        onGameOver(true);
     }
     
     if (isGameRunning && gameState.current.score > gameState.current.wave * 1500) {
@@ -703,19 +727,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.translate(shake, shake);
     }
 
-    // Draw Background & Environment with Camera Offset
-    drawEnvironment(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, gameState.current.suburbanIntegrity, gameState.current.cameraX);
+    drawEnvironment(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, gameState.current.sovereignty, gameState.current.cameraX);
 
-    // Apply Camera Transform for World Entities
     ctx.save();
     ctx.translate(-Math.floor(gameState.current.cameraX), 0);
 
     const allEntities = [gameState.current.hero, ...gameState.current.enemies];
     
-    // Sort pickups and entities by Y
     const drawables = [
         ...allEntities.map(e => ({type: 'ENTITY', obj: e, y: e.y})),
-        ...gameState.current.pickups.map(p => ({type: 'PICKUP', obj: p, y: p.y}))
+        ...gameState.current.pickups.map(p => ({type: 'PICKUP', obj: p, y: p.y})),
+        ...gameState.current.flagPoles.map(f => ({type: 'FLAG', obj: f, y: f.y}))
     ];
     drawables.sort((a, b) => a.y - b.y);
 
@@ -724,28 +746,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     drawables.forEach(d => {
         if (d.type === 'ENTITY') {
             drawEntity(ctx, d.obj as Entity, frameCount.current);
-        } else {
+        } else if (d.type === 'PICKUP') {
             drawPickup(ctx, d.obj as Pickup, frameCount.current);
+        } else if (d.type === 'FLAG') {
+            drawFlagPole(ctx, d.obj as FlagPole, frameCount.current);
         }
     });
 
     drawParticles(ctx, gameState.current.particles);
-    
-    ctx.restore(); // Restore camera transform
-
-    // Draw Foreground (Parallax)
+    ctx.restore();
     drawForeground(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, gameState.current.cameraX);
   };
 
   const loop = (timestamp: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = timestamp;
-    
     const deltaTime = timestamp - lastTimeRef.current;
     lastTimeRef.current = timestamp;
-    
     accumulatorRef.current += deltaTime;
-
-    // Cap accumulator to prevent death spiral on lag spikes
     if (accumulatorRef.current > 200) accumulatorRef.current = 200;
 
     while (accumulatorRef.current >= FIXED_TIME_STEP) {
@@ -755,7 +772,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     render();
     
-    // Only update health if changed to avoid spamming React Render
     if (gameStartedRef.current && Math.abs(gameState.current.hero.health - lastReportedHealth.current) > 0.1) {
         lastReportedHealth.current = gameState.current.hero.health;
         onHealthUpdate(gameState.current.hero.health);
@@ -767,14 +783,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   useEffect(() => {
     frameRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frameRef.current);
-  }, []); // Run once on mount
+  }, []);
 
   return (
     <canvas 
       ref={canvasRef} 
       width={CANVAS_WIDTH} 
       height={CANVAS_HEIGHT}
-      className="block w-full h-full bg-black cursor-none"
+      className="block max-w-full max-h-full mx-auto aspect-[4/5] bg-black cursor-none shadow-lg"
       style={{ imageRendering: 'pixelated' }}
     />
   );

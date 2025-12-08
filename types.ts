@@ -1,9 +1,9 @@
+
 export enum EntityType {
-  HERO = 'HERO',
-  ENEMY_FLAGGER = 'ENEMY_FLAGGER',
-  ENEMY_PAINTER = 'ENEMY_PAINTER',
-  ENEMY_HOOLIGAN = 'ENEMY_HOOLIGAN',
-  ENEMY_TANK = 'ENEMY_TANK',
+  PLAYER_GAMMON = 'PLAYER_GAMMON',
+  ENEMY_LAWYER = 'ENEMY_LAWYER',
+  ENEMY_TEACHER = 'ENEMY_TEACHER',
+  ENEMY_LIBRARIAN = 'ENEMY_LIBRARIAN',
 }
 
 export enum EntityState {
@@ -14,7 +14,7 @@ export enum EntityState {
   HURT = 'HURT',
   DYING = 'DYING',
   DEAD = 'DEAD',
-  ACTION = 'ACTION', // Putting up flag or painting
+  ACTION = 'ACTION', // Putting up flag or taking it down
 }
 
 export enum Direction {
@@ -60,6 +60,15 @@ export interface Entity {
   invincibilityTimer?: number;
 }
 
+export interface FlagPole {
+    id: number;
+    x: number;
+    y: number; // Z-depth base
+    raiseLevel: number; // 0 to 100
+    isContested: boolean;
+    isFullyRaised: boolean;
+}
+
 export interface Particle {
   id: string;
   x: number;
@@ -87,8 +96,9 @@ export interface GameState {
   enemies: Entity[];
   particles: Particle[];
   pickups: Pickup[];
+  flagPoles: FlagPole[];
   score: number;
-  suburbanIntegrity: number; // 0-100, if 0 lose
+  sovereignty: number; // Replaces Integrity
   gameOver: boolean;
   gameWon: boolean;
   wave: number;
