@@ -38,112 +38,133 @@ const App: React.FC = () => {
       inputRef.current.jump = true;
   };
 
-  // Wood texture pattern
+  // Walnut Wood Texture
   const woodStyle = {
-    backgroundColor: '#5d4037',
-    backgroundImage: `repeating-linear-gradient(90deg, rgba(62,39,35,0.8) 0px, rgba(93,64,55,0.8) 2px, rgba(62,39,35,0.8) 4px, rgba(62,39,35,0.8) 10px)`
+    backgroundColor: '#3e2723',
+    backgroundImage: `
+      repeating-linear-gradient(90deg, transparent 0, transparent 2px, rgba(0,0,0,0.2) 4px, transparent 6px),
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0, transparent 1px, transparent 4px)
+    `,
+    backgroundBlendMode: 'multiply'
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 flex flex-col select-none touch-none overflow-hidden">
+    <div className="fixed inset-0 bg-gray-900 flex flex-col select-none touch-none overflow-hidden font-sans">
 
       {/* 1. MARQUEE (Top 12%) */}
-      <div className="relative w-full h-[12%] bg-black flex items-center justify-center border-b-8 border-[#3e2723] shadow-lg z-20">
-          {/* Neon Border Container */}
-          <div className="w-[95%] h-[80%] border-4 border-cyan-400 rounded-lg shadow-[0_0_15px_#22d3ee,inset_0_0_10px_#22d3ee] flex items-center justify-center bg-black/50">
-              <div className="w-full h-full border-2 border-red-500 rounded flex items-center justify-center opacity-90">
-                  <h1 className="text-yellow-400 font-['Press_Start_2P'] text-xl md:text-3xl tracking-widest text-shadow-lg drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]">
-                      FLAG SHAGGERS
-                  </h1>
-              </div>
+      <div className="relative w-full h-[12%] bg-[#212121] flex items-center justify-center border-b-8 border-[#2d1b16] shadow-xl z-20">
+          {/* Neon Box */}
+          <div className="w-[92%] h-[80%] rounded-lg border-[3px] border-cyan-400 shadow-[0_0_10px_#22d3ee,inset_0_0_15px_rgba(34,211,238,0.4)] flex items-center justify-center bg-black overflow-hidden relative">
+              {/* Inner Red Border */}
+              <div className="absolute inset-1 rounded border-2 border-red-500 shadow-[0_0_5px_#ef4444] opacity-80 pointer-events-none"></div>
+              
+              {/* Text */}
+              <h1 className="text-[#fbbf24] font-['Press_Start_2P'] text-xl md:text-3xl tracking-widest drop-shadow-[0_0_8px_rgba(251,191,36,0.8)] z-10">
+                  FLAG SHAGGERS
+              </h1>
+              
+              {/* Scanline overlay for the sign */}
+              <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(0,0,0,0.2)_50%)] bg-[length:100%_4px] pointer-events-none opacity-30"></div>
           </div>
       </div>
 
       {/* 2. SCREEN SECTION (Middle 48%) */}
       <div className="relative w-full h-[48%] bg-black flex items-center justify-center">
-        {/* Cabinet Bezel (Dark Grey Frame) */}
-        <div className="relative w-full h-full bg-[#1a1a1a] p-2 md:p-4 shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] border-x-[16px] border-[#3e2723]">
+        {/* Cabinet Bezel - Wood Frame */}
+        <div className="relative w-full h-full p-3 md:p-5 shadow-[inset_0_0_50px_rgba(0,0,0,0.9)]" style={woodStyle}>
             
-            {/* The Actual Screen */}
-            <div className="relative w-full h-full bg-black overflow-hidden rounded-xl shadow-[inset_0_0_20px_rgba(0,0,0,1)] border-4 border-[#333]">
+            {/* Inner Black Bezel */}
+            <div className="w-full h-full bg-[#111] rounded-xl p-1 md:p-2 shadow-[0_0_20px_rgba(0,0,0,0.8)] border-b-2 border-white/10">
+              
+              {/* The Actual Screen */}
+              <div className="relative w-full h-full bg-black overflow-hidden rounded-lg border-4 border-[#222] shadow-[inset_0_0_30px_rgba(0,0,0,1)]">
+                
+                {/* HUD Layer */}
+                {gameStarted && (
+                    <div className="absolute top-0 left-0 right-0 z-30 p-3 font-['Press_Start_2P'] flex justify-between text-[10px] md:text-xs pointer-events-none">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 border-2 border-white bg-[#ffccbc] shadow-sm pixelated"></div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-blue-300 drop-shadow-md tracking-wider">HERO</span>
+                                <div className="w-20 md:w-28 h-2 bg-red-900 border border-white/50">
+                                    <div className="h-full bg-yellow-400 transition-all duration-300" style={{width: `${Math.max(0, health)}%`}}></div>
+                                </div>
+                            </div>
+                        </div>
 
-              {/* HUD Layer */}
-              {gameStarted && (
-                  <div className="absolute top-0 left-0 right-0 z-30 p-2 font-['Press_Start_2P'] flex justify-between text-[10px] md:text-xs">
-                      <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 border border-white bg-[#ffccbc] shadow-md"></div>
-                          <div className="flex flex-col">
-                              <span className="text-blue-400 drop-shadow-md">HERO</span>
-                              <div className="w-16 md:w-24 h-2 bg-red-900 border border-white">
-                                  <div className="h-full bg-yellow-400" style={{width: `${Math.max(0, health)}%`}}></div>
-                              </div>
-                          </div>
-                      </div>
+                        <div className="absolute left-1/2 -translate-x-1/2 top-2 flex flex-col items-center">
+                            <span className="text-yellow-200/80 text-[8px] mb-1 tracking-widest">HIGH SCORE</span>
+                            <div className="bg-black/40 px-3 py-1 rounded text-white shadow-[0_2px_0_rgba(255,255,255,0.1)]">
+                                {score.toString().padStart(6, '0')}
+                            </div>
+                        </div>
 
-                      <div className="absolute left-1/2 -translate-x-1/2 top-2 flex flex-col items-center">
-                          <span className="text-blue-200 text-[8px] mb-1">SCORE</span>
-                          <div className="bg-white/10 px-2 py-1 rounded text-white shadow text-shadow-sm">
-                              {score.toString().padStart(5, '0')}
-                          </div>
-                      </div>
+                        <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-end gap-1">
+                                <span className="text-red-400 drop-shadow-md tracking-wider">GAMMON</span>
+                                <div className="w-20 md:w-28 h-2 bg-red-900 border border-white/50">
+                                    <div className="h-full bg-yellow-400 transition-all duration-300" style={{width: `${Math.max(0, integrity)}%`}}></div>
+                                </div>
+                            </div>
+                            <div className="w-8 h-8 border-2 border-white bg-[#ff8a80] shadow-sm pixelated"></div>
+                        </div>
+                    </div>
+                )}
 
-                      <div className="flex items-center gap-2">
-                          <div className="flex flex-col items-end">
-                              <span className="text-blue-400 drop-shadow-md">GAMMON</span>
-                              <div className="w-16 md:w-24 h-2 bg-red-900 border border-white">
-                                  <div className="h-full bg-yellow-400" style={{width: `${Math.max(0, integrity)}%`}}></div>
-                              </div>
-                          </div>
-                          <div className="w-6 h-6 border border-white bg-[#ff8a80] shadow-md"></div>
-                      </div>
-                  </div>
-              )}
+                {/* Game Canvas */}
+                <GameCanvas
+                    gameStarted={gameStarted}
+                    onScoreUpdate={setScore}
+                    onHealthUpdate={setHealth}
+                    onIntegrityUpdate={setIntegrity}
+                    onGameOver={handleGameOver}
+                    inputRef={inputRef}
+                />
 
-              {/* Game Canvas */}
-              <GameCanvas
-                  gameStarted={gameStarted}
-                  onScoreUpdate={setScore}
-                  onHealthUpdate={setHealth}
-                  onIntegrityUpdate={setIntegrity}
-                  onGameOver={handleGameOver}
-                  inputRef={inputRef}
-              />
+                {/* Title Screen Overlay */}
+                {!gameStarted && (
+                    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-[1px]">
+                          <h2 className="text-yellow-400 text-2xl md:text-4xl font-['Press_Start_2P'] mb-8 text-shadow-lg animate-pulse">INSERT COIN</h2>
+                          
+                          {gameOver && (
+                            <div className="mb-6 text-center font-['Press_Start_2P']">
+                                <p className="text-red-500 text-lg mb-2 animate-bounce">GAME OVER</p>
+                                <p className="text-gray-300 text-xs">SCORE: {score}</p>
+                            </div>
+                          )}
 
-              {/* Title Screen Overlay */}
-              {!gameStarted && (
-                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-[2px]">
-                        <h2 className="text-yellow-400 text-xl md:text-3xl font-['Press_Start_2P'] mb-6 text-shadow animate-pulse">INSERT COIN</h2>
-                        
-                        {gameOver && (
-                          <div className="mb-4 text-center font-['Press_Start_2P']">
-                              <p className="text-red-500 text-lg mb-2">GAME OVER</p>
-                              <p className="text-white text-xs">SCORE: {score}</p>
-                          </div>
-                        )}
+                          <button
+                            onClick={handleStart}
+                            className="group relative px-8 py-4 bg-blue-600 text-white font-['Press_Start_2P'] text-sm border-b-4 border-r-4 border-blue-800 hover:bg-blue-500 hover:scale-105 active:border-0 active:translate-y-1 transition-all"
+                          >
+                              START GAME
+                          </button>
+                    </div>
+                )}
 
-                        <button
-                          onClick={handleStart}
-                          className="animate-bounce px-4 py-3 bg-blue-700 text-white font-['Press_Start_2P'] text-xs border-4 border-blue-400 hover:bg-blue-600 shadow-[0_0_15px_#2962ff]"
-                        >
-                            START GAME
-                        </button>
-                  </div>
-              )}
-
-              {/* CRT Scanlines & Glare */}
-              <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_4px,3px_100%] z-40 opacity-60"></div>
-              <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_60px_rgba(0,0,0,0.7)] z-40"></div>
-              <div className="absolute top-0 right-0 w-[60%] h-[40%] bg-gradient-to-bl from-white/5 to-transparent rounded-bl-[100px] pointer-events-none z-40"></div>
+                {/* CRT Screen Effects */}
+                <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.15)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,6px_100%] z-40 opacity-100 mix-blend-overlay"></div>
+                <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_80px_rgba(0,0,0,0.8)] z-40"></div>
+                {/* Screen Reflection */}
+                <div className="absolute top-0 right-0 w-[50%] h-[100%] bg-gradient-to-l from-white/5 to-transparent skew-x-[-10deg] pointer-events-none z-40"></div>
+              </div>
             </div>
         </div>
       </div>
 
       {/* 3. CONTROL DECK (Middle-Bottom 30%) */}
-      <div className="relative w-full h-[30%] shadow-[0_-10px_20px_rgba(0,0,0,0.5)] z-10" style={woodStyle}>
-          {/* Deck Top Surface - angled slightly via CSS gradient shadow */}
-          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-white/10 to-black/20"></div>
+      <div className="relative w-full h-[30%] shadow-[0_-10px_30px_rgba(0,0,0,0.7)] z-10 overflow-hidden" style={woodStyle}>
+          {/* Deck Texture Overlay (Checkered Pattern in image) */}
+          <div className="absolute inset-0 opacity-20" style={{
+              backgroundImage: 'linear-gradient(45deg, #000 25%, transparent 25%), linear-gradient(-45deg, #000 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #000 75%), linear-gradient(-45deg, transparent 75%, #000 75%)',
+              backgroundSize: '20px 20px',
+              backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+          }}></div>
           
-          <div className="w-full h-full pt-4 md:pt-8">
+          {/* Deck Top Shadow Gradient */}
+          <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-black/60 to-transparent pointer-events-none"></div>
+
+          <div className="w-full h-full relative">
                 <VirtualJoystick
                   onInput={handleJoystickInput}
                   onAction={handleAction}
@@ -152,27 +173,31 @@ const App: React.FC = () => {
             </div>
       </div>
 
-      {/* 4. COIN SLOTS / KICK PLATE (Bottom 10%) */}
-      <div className="relative w-full h-[10%] flex items-center justify-center gap-12 border-t-4 border-[#3e2723]" style={woodStyle}>
+      {/* 4. COIN SLOTS (Bottom 10%) */}
+      <div className="relative w-full h-[10%] flex items-center justify-center gap-16 border-t-8 border-[#2d1b16] bg-[#3e2723]" style={woodStyle}>
           {/* Coin Slot 1 */}
-          <div className="w-16 h-20 bg-black/80 rounded border-2 border-[#3e2723] flex flex-col items-center justify-center shadow-inner">
-             <div className="w-10 h-14 bg-red-700 rounded border-2 border-red-900 shadow-[inset_0_0_5px_rgba(0,0,0,0.5)] flex items-center justify-center">
-                 <div className="w-1 h-8 bg-black"></div>
-             </div>
-             <div className="w-10 h-1 bg-red-900 mt-1"></div>
-          </div>
-          
+          <CoinSlot />
           {/* Coin Slot 2 */}
-          <div className="w-16 h-20 bg-black/80 rounded border-2 border-[#3e2723] flex flex-col items-center justify-center shadow-inner">
-             <div className="w-10 h-14 bg-red-700 rounded border-2 border-red-900 shadow-[inset_0_0_5px_rgba(0,0,0,0.5)] flex items-center justify-center">
-                 <div className="w-1 h-8 bg-black"></div>
-             </div>
-             <div className="w-10 h-1 bg-red-900 mt-1"></div>
-          </div>
+          <CoinSlot />
       </div>
 
     </div>
   );
 };
+
+// Sub-component for the Coin Slot visual
+const CoinSlot = () => (
+  <div className="relative w-16 h-20 bg-[#1a1a1a] rounded border-4 border-[#5d4037] flex flex-col items-center justify-start py-2 shadow-[0_2px_5px_rgba(0,0,0,0.5)]">
+      {/* Red Light Button */}
+      <div className="w-8 h-10 bg-red-700 rounded-sm border-t border-l border-red-500 border-b-2 border-r-2 border-red-900 shadow-[inset_0_0_8px_rgba(0,0,0,0.5)] flex items-center justify-center mb-1 relative overflow-hidden">
+          {/* Coin Slot Hole */}
+          <div className="w-1 h-6 bg-black rounded-full shadow-[0_0_2px_rgba(255,255,255,0.2)]"></div>
+          {/* Glow */}
+          <div className="absolute inset-0 bg-red-500/20 animate-pulse pointer-events-none"></div>
+      </div>
+      {/* Coin Return Button */}
+      <div className="w-8 h-3 bg-zinc-400 rounded-sm border border-zinc-500 shadow-sm"></div>
+  </div>
+);
 
 export default App;
